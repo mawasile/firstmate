@@ -88,6 +88,7 @@ Load `session-start-recovery` when the digest reports unfinished checks, actiona
 
 ## 4. Harness and runtime dispatch
 
+- Copilot sessions in this home run on Linux: use Linux-native tools and paths, never Windows executables, paths, or credential helpers.
 - Load `harness-adapters` before every spawn or recovery and before trust handling, skill invocation, interrupt, exit, resume, or adapter verification.
 - The verified dispatch harnesses are `claude`, `codex`, `opencode`, `pi`, `pi-signed`, `grok`, `kimi`, `cursor`, and `omp`, plus `muse`, `gemini`, `rovo`, `agy`, `devin`, and `copilot` for crewmates and scouts only; `copilot` is also verified for the primary session; never dispatch on an unverified adapter.
 - If static `config/crew-harness` or `config/secondmate-harness` names an unverified adapter, report it and fall back only to a verified adapter rather than launching it.
