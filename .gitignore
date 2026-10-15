@@ -10,7 +10,8 @@ scratchpad*
 __pycache__/
 *.pyc
 .env
-config/
+config/*
+!config/backend
 
 .tools/
 .devcontainer/devcontainer-lock.json

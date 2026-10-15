@@ -93,6 +93,8 @@ Each effective `FM_HOME` contains private operational directories.
 - Parent-owned secondmate pending-reply records under `state/pending-replies/` (`bin/fm-pending-reply-lib.sh`).
 
 `config/` holds local gitignored operating choices, including explicit extension bindings under `config/extensions.d/`.
+The one tracked exception is `config/backend`, which carries this repository's default runtime backend.
+A home that wants another backend overrides it with `FM_BACKEND` or a per-task `--backend` rather than editing the tracked file, so the working tree stays clean.
 
 `projects/` holds local project clones.
 Firstmate reads these clones, but changes them only through the narrow guarded and concrete captain-approved exceptions in `AGENTS.md`.

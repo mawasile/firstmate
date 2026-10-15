@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# .gitignore must ignore config/ as a directory, not by exact filename.
+# .gitignore must ignore config/ as a category, not by exact filename.
+# The one exception is config/backend, the tracked runtime backend default.
 #
 # A name-by-name list silently stops ignoring any new or home-local file under
 # config/ (fm-gitignore-config-name-by-name): an unrecognized file there makes
@@ -33,6 +34,15 @@ test_config_dir_ignored_as_category() {
       || fail "git does not ignore $sample (config/ must be ignored as a directory)"
   done
   pass "config/ is ignored as a directory, covering unlisted and nested paths"
+}
+
+test_backend_default_is_trackable() {
+  git -C "$ROOT" check-ignore -q config/backend \
+    && fail "git ignores config/backend (the tracked runtime backend default must stay visible)"
+  git -C "$ROOT" ls-files --error-unmatch config/backend >/dev/null 2>&1 \
+    || [ -f "$ROOT/config/backend" ] \
+    || fail "config/backend is missing"
+  pass "config/backend is the one config file visible to git"
 }
 
 test_unrelated_path_stays_visible() {
@@ -85,6 +95,7 @@ test_scratchpad2_does_not_dirty_porcelain() {
 }
 
 test_config_dir_ignored_as_category
+test_backend_default_is_trackable
 test_unrelated_path_stays_visible
 test_scratchpad_prefix_is_ignored
 test_scratchpad_prefix_ignores_no_tracked_path
