@@ -26,8 +26,8 @@ Copilot also loads the project `.claude/settings.json` PreToolUse hooks, and whe
 That bare message on a bash call usually means the persistent-directory guard rejected a top-level `cd`, including `cd <dir> && <cmd>`, so never start a Copilot primary command with `cd`.
 Reach the target with an absolute path or `git -C <dir>`, or scope the change in a subshell like `(cd <dir> && ...)`; `../../../../../docs/cd-guard.md` owns the full block and allow rules.
 
-The `agentStop` hook uses Copilot's native block decision for one bounded continuation when supervision is required.
-The continuation follows the rendered foreground-checkpoint protocol, matching Codex's watcher shape without depending on background completion notifications.
+The rendered foreground-checkpoint protocol keeps supervision inside one turn as a checkpoint loop, matching Codex's watcher shape without depending on background completion notifications.
+The `agentStop` hook is only that loop's backstop: when a turn ends while supervision is still required, Copilot's native block decision starts one bounded continuation that resumes the loop.
 The `sessionEnd` hook retires the logical-session guardian.
 
 Those user-level hooks also fire for a Copilot worker run by the same user, and they answer `{}` because the worker's working tree is not this home.

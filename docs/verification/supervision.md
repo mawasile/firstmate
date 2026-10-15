@@ -670,6 +670,61 @@ Observed output without the checkpoint distinction:
 not ok - announced recovery checkpoint exit: expected exit 124, got 0
 ```
 
+On 2026-10-15 three Copilot primary supervision defects were reproduced from a GitHub Copilot CLI 1.0.98 VS Code SDK session transcript and fixed.
+That transcript showed many tool rounds inside one captain-initiated turn, a captain message moving a running synchronous checkpoint to the background and arriving in the same flow, and the checkpoint's exit 124 arriving later as a completion notification.
+
+The rewritten in-turn checkpoint loop in [`../supervision-protocols/copilot.md`](../supervision-protocols/copilot.md) was then run live on GitHub Copilot CLI 1.0.98 in non-interactive prompt mode (`copilot -p`), model `claude-sonnet-5.5` at the CLI's default reasoning effort, on Linux x64 in the dev container.
+Each run used a disposable home whose `bin` linked to this branch's scripts, an isolated `COPILOT_HOME` with no hooks installed, and the GitHub CLI token passed only to that process, so no user hook, primary home, guardian, or supervision was touched.
+With no `agentStop` hook, any turn end would have ended the process, so every checkpoint after the first proves in-turn continuity rather than a hook continuation.
+The single prompt was the rendered `bin/fm-supervision-instructions.sh --harness copilot` block plus a test bound allowing the turn to end only after a wake carrying a run token was drained, acknowledged, and recorded.
+A side process wrote `state/livedemo.status` once a chosen checkpoint held the watcher lock, with `FM_POLL=2`, `FM_SIGNAL_GRACE=2`, and heartbeat and check sweeps pushed beyond the run, and the real 180-second checkpoint bound.
+
+The second run seeded `acked:handling:seed.1.aaa`, as an established home carries, and held one turn for 14 minutes on one user message:
+
+```text
+18:51:54 checkpoint 1 -> checkpoint: no actionable wake within 180s (exit 124)
+18:55:14 checkpoint 2 -> checkpoint: no actionable wake within 180s (exit 124)
+18:58:33 checkpoint 3 -> checkpoint: no actionable wake within 180s (exit 124)
+19:01:54 checkpoint 4 -> checkpoint: no actionable wake within 180s (exit 124)
+19:05:13 checkpoint 5 -> signal: .../state/livedemo.status (exit 0)
+19:05:28 bin/fm-wake-drain.sh -> WAKE_ACK_REQUIRED ... --ack-through 2
+19:05:32 acknowledgement and handled marker, then LOOP_DONE; process exit 0
+```
+
+Every checkpoint used a synchronous call with `initial_wait` 240, each quiet close was followed by a drain and the next checkpoint, the seeded acknowledged marker stayed unchanged through all four quiet closes, and the session log recorded 1 user message, 12 tool calls, and 13 assistant rounds.
+
+The first run, on a fresh home with no marker, also ended with the event handled in one turn on one user message, and exposed two behaviors outside this change:
+
+- Its first checkpoint ended with exit 137 and the shell's `Killed` line for GNU `timeout`, meaning the watcher had not exited within the 5-second kill-after window following the bound's interrupt; the model drained and started the next checkpoint, which the protocol now states explicitly.
+  The same bound in the next checkpoint closed cleanly with 124, a 20-second repro outside Copilot closed with 124, and the cause was not isolated.
+- The next checkpoint woke at once with `check: rearm-resurface`, because a home that has never acknowledged an episode has no acknowledged token to restore; once acknowledged, later quiet closes stayed quiet, so this occurs once per home.
+
+Not verified live: the interactive CLI terminal, a captain message arriving mid-checkpoint during the loop, and the VS Code Copilot SDK host this primary uses, whose shared `copilot-runtime` may differ in turn or tool limits from the CLI; the CLI results are not claimed to be equivalent to that host.
+
+The other two fixes were exercised hermetically, each against its committed form and against a control with the change reverted:
+
+```sh
+bin/fm-test-run.sh tests/fm-watch-checkpoint.test.sh
+bin/fm-test-run.sh tests/fm-guard-stale-banner.test.sh
+```
+
+Observed output with the fixes:
+
+```text
+ok - a quiet checkpoint close does not reopen an acknowledged episode for the next checkpoint
+ok - a quiet checkpoint close still resurfaces handling that was never acknowledged
+ok - fm-guard stale banner: checkpoint model fresh beacon between checkpoints is healthy
+ok - fm-guard stale banner: checkpoint model stale beacon alarms with the true reason
+ok - fm-guard stale banner: Copilot and Codex primaries route themselves to the checkpoint model
+```
+
+Observed output without the quiet-close restore in `bin/fm-watch-checkpoint.sh`, and without the checkpoint model in `bin/fm-wake-lib.sh`:
+
+```text
+not ok - quiet checkpoint 1 reopened the acknowledged episode: pending:downtime:...
+not ok - checkpoint model with a fresh beacon between checkpoints must stay silent
+```
+
 Deterministic entry points:
 
 ```sh

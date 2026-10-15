@@ -302,7 +302,7 @@ Main drains and acknowledges, and the owner starts the next park:
 |---|---|
 | Claude and Cursor | At the next turn end. |
 | OpenCode and omp | At once. |
-| GitHub Copilot | At the next bounded `agentStop` continuation. |
+| GitHub Copilot | At once, from the same turn's checkpoint loop. |
 | Grok | At the model's re-arm. |
 
 The host checks the boundary on every loop pass, so closes that are already waiting cannot carry it past the boundary.

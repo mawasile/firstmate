@@ -222,7 +222,7 @@ The first recovery marks that generation announced, and later empty-queue arms l
 A non-successor watcher start checks the durable queue and recovery marker under their locks.
 If an announced-but-unacknowledged episode has an empty queue, the arm leaves that generation announced, making repeated empty-queue arms idempotent while a long-poll source is merely alive.
 If a durable row arrived after the announcement, the arm opens a fresh pending downtime generation so buried work still resurfaces once.
-A Codex foreground checkpoint skips the announced-episode reopen transition, so an already-announced generation stays announced while the checkpoint continues its bounded supervision.
+A Codex or Copilot foreground checkpoint skips the announced-episode reopen transition, so an already-announced generation stays announced while the checkpoint continues its bounded supervision.
 Its ordinary arm check still announces a never-announced generation, including one made pending by a durable queue append during the checkpoint.
 
 ### Generation reuse
@@ -236,6 +236,8 @@ An announced handling episode becomes pending downtime on the same generation be
 That handling republication gives a successor exactly one recovery presentation without orphaning the acknowledgement already printed for that generation.
 A watcher stopped so an arm can take its cycle over (`bin/fm-watch-arm.sh --take-over`) publishes downtime like any close, but the taking arm restores an acknowledged episode that stop reopened only when the taken-over arm's cycle-ledger row for that exact arm and watcher records the watcher ending by the take-over's TERM and no wake was appended in between.
 The taking arm waits within a short bound for that row; a missing row or any other signal leaves downtime for the fresh cycle's ordinary recovery wake, while take-over still proceeds.
+A Codex or Copilot foreground checkpoint that closes quietly at its bound applies the same guarded restore, because that close delivered nothing and is the checkpoint's designed outcome rather than downtime.
+It snapshots the episode before starting its watcher and restores an acknowledged token only while no wake was appended in between, so a quiet close never makes the next checkpoint announce a redundant `check: rearm-resurface`.
 Any other episode is left for the next cycle's arm check.
 
 ### What an acknowledgement retires

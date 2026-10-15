@@ -942,8 +942,79 @@ test_pi_harness_routes_itself_to_the_extension_model() {
   pass "fm-guard stale banner: Pi and pi-signed primaries route themselves to the extension model"
 }
 
+# The foreground checkpoint model (Codex and GitHub Copilot): the watcher runs
+# only inside each bounded checkpoint, so between checkpoints a fresh beacon with
+# no live watcher is healthy, while a stale or absent beacon is a real lapse.
+test_checkpoint_fresh_beacon_without_watcher_is_healthy() {
+  local dir out
+  dir=$(make_guard_case checkpoint-fresh)
+  touch "$(case_home "$dir")/state/.last-watcher-beat"
+  out=$(FM_ROOT_OVERRIDE="$(case_root "$dir")" FM_HOME="$(case_home "$dir")" \
+    FM_GUARD_GRACE=999 FM_SUPERVISION_MODEL=checkpoint "$ROOT/bin/fm-guard.sh" 2>&1)
+  [ -z "$out" ] \
+    || fail "checkpoint model with a fresh beacon between checkpoints must stay silent, got: $out"
+  pass "fm-guard stale banner: checkpoint model fresh beacon between checkpoints is healthy"
+}
+
+test_checkpoint_stale_beacon_alarms_with_correct_reason() {
+  local dir home out
+  dir=$(make_guard_case checkpoint-stale)
+  home=$(case_home "$dir")
+  touch -t 201901010000 "$home/state/.last-watcher-beat"
+  out=$(FM_ROOT_OVERRIDE="$(case_root "$dir")" FM_HOME="$home" \
+    FM_GUARD_GRACE=999 FM_SUPERVISION_MODEL=checkpoint "$ROOT/bin/fm-guard.sh" 2>&1)
+  [ "$(count_text "$out" "WATCHER DOWN - SUPERVISION IS OFF")" -eq 1 ] \
+    || fail "checkpoint model with a stale beacon must alarm: $out"
+  assert_contains "$out" "no watcher has a fresh beacon" \
+    "checkpoint stale-beacon banner must name the stale-beacon reason"
+  pass "fm-guard stale banner: checkpoint model stale beacon alarms with the true reason"
+}
+
+# End-user path: no FM_SUPERVISION_MODEL, so bin/fm-harness.sh must route a
+# Copilot primary (by its session markers, with ancestry blinded) and a Codex
+# primary (by an exact codex ancestor) to the checkpoint model on their own.
+# shellcheck disable=SC2016 # the fake codex shell expands its own arguments
+test_checkpoint_harnesses_route_themselves_to_the_checkpoint_model() {
+  local dir home out blind codexbin
+  blind=$(fm_fakebin "$TMP_ROOT/checkpoint-routing-blind")
+  fm_fake_blind_ancestry "$blind"
+  dir=$(make_guard_case harness-routing-copilot)
+  home=$(case_home "$dir")
+  touch "$home/state/.last-watcher-beat"
+  out=$(env -u CLAUDECODE -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GROK_AGENT -u PI_CODING_AGENT \
+    -u GEMINI_CLI -u ATLASSIAN_AGENT_TYPE -u ROVODEV_CLI -u FM_OMP_HARNESS -u FM_SUPERVISION_MODEL \
+    COPILOT_CLI=1 COPILOT_AGENT_SESSION_ID=checkpoint-routing-session \
+    PATH="$blind:$PATH" \
+    FM_ROOT_OVERRIDE="$(case_root "$dir")" \
+    FM_HOME="$home" \
+    FM_GUARD_GRACE=999 \
+    "$ROOT/bin/fm-guard.sh" 2>&1)
+  [ -z "$out" ] \
+    || fail "a Copilot primary between checkpoints must route itself to the checkpoint model, got: $out"
+
+  codexbin="$TMP_ROOT/checkpoint-routing-codex"
+  mkdir -p "$codexbin"
+  ln -sf "$(command -v bash)" "$codexbin/codex"
+  dir=$(make_guard_case harness-routing-codex)
+  home=$(case_home "$dir")
+  touch "$home/state/.last-watcher-beat"
+  out=$(env -u CLAUDECODE -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GROK_AGENT -u PI_CODING_AGENT \
+    -u GEMINI_CLI -u ATLASSIAN_AGENT_TYPE -u ROVODEV_CLI -u FM_OMP_HARNESS -u FM_SUPERVISION_MODEL \
+    -u COPILOT_CLI -u COPILOT_AGENT_SESSION_ID \
+    FM_ROOT_OVERRIDE="$(case_root "$dir")" \
+    FM_HOME="$home" \
+    FM_GUARD_GRACE=999 \
+    "$codexbin/codex" -c '"$0" 2>&1' "$ROOT/bin/fm-guard.sh")
+  [ -z "$out" ] \
+    || fail "a Codex primary between checkpoints must route itself to the checkpoint model, got: $out"
+  pass "fm-guard stale banner: Copilot and Codex primaries route themselves to the checkpoint model"
+}
+
 test_first_stale_call_prints_full_banner
 test_full_banner_names_quiet_mode_when_active
+test_checkpoint_fresh_beacon_without_watcher_is_healthy
+test_checkpoint_stale_beacon_alarms_with_correct_reason
+test_checkpoint_harnesses_route_themselves_to_the_checkpoint_model
 test_repeated_same_episode_prints_reminder_only
 test_pi_harness_routes_itself_to_the_extension_model
 test_extension_handoff_with_live_session_is_healthy

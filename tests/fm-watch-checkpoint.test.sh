@@ -176,6 +176,49 @@ test_queue_append_during_checkpoint_still_resurfaces() {
   pass "a queue append during a foreground checkpoint still resurfaces"
 }
 
+test_quiet_checkpoint_keeps_an_acknowledged_episode_retired() {
+  local home out err status run
+  home=$(make_home acked-quiet)
+  out="$home/out.txt"
+  err="$home/err.txt"
+  printf 'acked:handling:retired.1.aaa\n' > "$home/state/.watcher-down"
+
+  for run in 1 2; do
+    status=0
+    FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 \
+      "$CHECKPOINT" --seconds 1 >"$out" 2>"$err" || status=$?
+    expect_code 124 "$status" "quiet checkpoint $run after an acknowledged episode"
+    assert_not_contains "$(cat "$out")" "check: rearm-resurface" \
+      "quiet checkpoint $run resurfaced an acknowledged episode: $(cat "$out")"
+    [ "$(cat "$home/state/.watcher-down")" = 'acked:handling:retired.1.aaa' ] \
+      || fail "quiet checkpoint $run reopened the acknowledged episode: $(cat "$home/state/.watcher-down")"
+  done
+  pass "a quiet checkpoint close does not reopen an acknowledged episode for the next checkpoint"
+}
+
+test_quiet_checkpoint_still_resurfaces_unacknowledged_handling() {
+  local home out err status
+  home=$(make_home unacked-quiet)
+  out="$home/out.txt"
+  err="$home/err.txt"
+  printf 'pending:handling:interrupted.1.aaa\n' > "$home/state/.watcher-down"
+
+  status=0
+  FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 \
+    "$CHECKPOINT" --seconds 1 >"$out" 2>"$err" || status=$?
+  expect_code 124 "$status" "quiet checkpoint during unacknowledged handling"
+  [ "$(cat "$home/state/.watcher-down")" = 'pending:downtime:interrupted.1.aaa' ] \
+    || fail "unacknowledged handling was not republished as pending downtime: $(cat "$home/state/.watcher-down")"
+
+  status=0
+  FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 \
+    "$CHECKPOINT" --seconds 5 >"$out" 2>"$err" || status=$?
+  expect_code 0 "$status" "checkpoint after unacknowledged handling"
+  assert_contains "$(cat "$out")" "check: rearm-resurface" \
+    "unacknowledged handling did not resurface after a quiet checkpoint"
+  pass "a quiet checkpoint close still resurfaces handling that was never acknowledged"
+}
+
 test_signal_passes_through_and_exits_zero() {
   local home out err status drained
   home=$(make_home signal)
@@ -361,6 +404,8 @@ test_perl_timeout_fallback_honors_cleanup_bound_before_escalating
 test_announced_recovery_is_not_reannounced_by_next_checkpoint
 test_never_announced_recovery_is_announced_once
 test_queue_append_during_checkpoint_still_resurfaces
+test_quiet_checkpoint_keeps_an_acknowledged_episode_retired
+test_quiet_checkpoint_still_resurfaces_unacknowledged_handling
 test_signal_passes_through_and_exits_zero
 test_registered_check_uses_preserved_watcher_environment
 test_existing_singleton_watcher_is_not_success

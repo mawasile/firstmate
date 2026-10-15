@@ -196,6 +196,23 @@ if fm_supervision_host_enabled "$CONFIG" "$CHECKPOINT_PRIMARY"; then
   exit "$RC"
 fi
 
+# A quiet close at the bound is this checkpoint's designed outcome, not a
+# supervision gap: the watcher delivered nothing, so no handling can have been
+# interrupted, and every durable append publishes its own downtime. The
+# watcher's ordinary close still reopens an acknowledged episode as fresh
+# pending downtime, which the next checkpoint would announce at once as a
+# redundant check: rearm-resurface. Snapshot the episode here and, after a
+# quiet close only, apply the same guarded handover restore a take-over uses
+# (docs/watcher-continuity.md "Generation reuse"): it puts back only an
+# acknowledged token, only while no wake was appended in between. A snapshot
+# that cannot be taken leaves the ordinary close untouched.
+HANDOVER_SNAPSHOT=0
+# shellcheck source=bin/fm-wake-lib.sh
+if . "$SCRIPT_DIR/fm-wake-lib.sh" \
+  && fm_recovery_marker_handover_snapshot "$STATE/.watcher-down" 2>/dev/null; then
+  HANDOVER_SNAPSHOT=1
+fi
+
 set +e
 # Interrupt the checkpoint's active check group so the watcher's native EXIT cleanup can release its lock; ordinary watcher shutdown still uses TERM.
 run_bounded "$SECONDS_ARG" INT 5 "$SCRIPT_DIR/fm-watch.sh" >"$OUT" 2>"$ERR"
@@ -216,6 +233,10 @@ if grep -E '^watcher: already running' "$OUT" "$ERR" >/dev/null 2>&1; then
 fi
 
 if [ "$RC" -eq 124 ]; then
+  if [ "$HANDOVER_SNAPSHOT" -eq 1 ]; then
+    fm_recovery_marker_handover_restore "$STATE/.watcher-down" \
+      "$FM_RECOVERY_HANDOVER_TOKEN" "$FM_RECOVERY_HANDOVER_SEQ" 2>/dev/null || true
+  fi
   printf 'checkpoint: no actionable wake within %ss\n' "$SECONDS_ARG"
   exit 124
 fi

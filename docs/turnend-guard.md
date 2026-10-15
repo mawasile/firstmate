@@ -162,6 +162,12 @@ Without that proof an unheld lock alarms exactly as it did before.
 An unloaded, version-drifted, or exited Pi or omp session is therefore loud immediately.
 A cycle the extension never restores is loud once the beacon passes grace.
 
+#### Foreground checkpoint model
+
+Under the foreground checkpoint model (Codex and GitHub Copilot) the watcher runs only inside each bounded `bin/fm-watch-checkpoint.sh` call, and the session handles each result between checkpoints.
+A beacon fresh within grace is therefore healthy with or without a live watcher process.
+A stale or absent beacon means the checkpoints stopped, and it alarms with the stale-beacon reason.
+
 #### Persistent-watcher harnesses
 
 Under every persistent-watcher harness a live identity-matched watcher with a fresh beacon is still required, so the pull guard keeps the same strict semantics there.
@@ -575,6 +581,7 @@ It proves that a live foreign owner still prevents arming while repeated non-own
 `tests/fm-guard-stale-banner.test.sh` covers the pull-guard predicate for each supervision model:
 
 - The persistent model's fresh-leftover-beacon negative control.
+- The foreground checkpoint model's healthy fresh-beacon-between-checkpoints case, stale-beacon alarm, and Codex and Copilot harness routing.
 - The auto-arm model's healthy fresh-beacon-without-a-watcher case, session-and-recovery-bound long-turn rewake tolerance, independently broken tolerance signals, open-claim negative control, stale-beacon alarm, and isolation from other models.
 - The extension model's live-watcher path, ownership-qualified fresh hand-off, held-lock failures, independently broken ownership signals, stale-beacon alarm, queued-wake warning, and Pi and pi-signed harness routing.
 

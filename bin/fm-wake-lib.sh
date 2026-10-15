@@ -226,21 +226,33 @@ fm_watcher_healthy() {
 #               spawns the replacement itself, so a genuinely unheld singleton lock
 #               is healthy during that hand-off only with extension ownership and a
 #               fresh beacon. Any held but unhealthy lock remains down.
-#   persistent  every other harness (codex foreground checkpoint, opencode/grok
-#               background arm, tmux, unknown): the watcher runs as a tracked live
-#               process, so a live identity-matched pid is the real liveness signal.
+#   checkpoint  Codex and GitHub Copilot: the session runs bounded foreground
+#               watcher checkpoints (bin/fm-watch-checkpoint.sh) and handles each
+#               result between them, so no watcher process runs while a result is
+#               handled. A beacon fresh within grace is healthy without a live
+#               watcher; a stale or absent beacon means the checkpoints stopped.
+#   persistent  every other harness (opencode/grok background arm, tmux,
+#               unknown): the watcher runs as a tracked live process, so a live
+#               identity-matched pid is the real liveness signal.
 # FM_SUPERVISION_MODEL overrides detection (tests, and callers that already know
 # the harness). Otherwise bin/fm-harness.sh is the single detection owner, so this
 # stays consistent with the harness-specific repair line the guards already emit.
 fm_supervision_model() {
-  local harness
   case "${FM_SUPERVISION_MODEL:-}" in
-    autoarm|extension|persistent) printf '%s\n' "$FM_SUPERVISION_MODEL"; return 0 ;;
+    autoarm|extension|checkpoint|persistent) printf '%s\n' "$FM_SUPERVISION_MODEL"; return 0 ;;
   esac
-  harness=$("$FM_WAKE_LIB_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
-  case "$harness" in
+  fm_supervision_model_for_harness "$("$FM_WAKE_LIB_DIR/fm-harness.sh" 2>/dev/null || printf unknown)"
+}
+
+# fm_supervision_model_for_harness <harness>
+# The one harness-to-model table behind fm_supervision_model, shared by callers
+# that classify a harness other than their own (a secondmate launch, or the
+# lock holder of an inspected home).
+fm_supervision_model_for_harness() {
+  case "${1:-}" in
     claude|cursor) printf 'autoarm\n' ;;
     pi|pi-signed|omp) printf 'extension\n' ;;
+    codex|copilot) printf 'checkpoint\n' ;;
     *) printf 'persistent\n' ;;
   esac
 }
@@ -413,6 +425,9 @@ fm_afk_mode() {
 # explains the gap (a rewake bound to the current recovery generation and
 # live session lock), because turn-end re-arms.
 # Without that proof a stale or absent beacon is a genuine lapse.
+# checkpoint: a fresh beacon within grace is healthy with or without a live
+# watcher, because the watcher runs only inside each bounded foreground
+# checkpoint; a stale or absent beacon is a genuine lapse.
 # extension: a live identity-matched watcher is the ordinary healthy state, but a
 # genuinely unheld lock is also healthy while the beacon is fresh AND a live Pi
 # session provably owns continuity (fm_extension_owns_supervision: the Pi or the
@@ -445,6 +460,10 @@ fm_watcher_supervision_verdict() {
     if [ "$fresh" = true ] || fm_autoarm_midturn_healthy "$state" "$grace"; then
       FM_WATCHER_VERDICT_OK=true
     fi
+    return 0
+  fi
+  if [ "$model" = checkpoint ]; then
+    [ "$fresh" = false ] || FM_WATCHER_VERDICT_OK=true
     return 0
   fi
   if fm_watcher_healthy "$state" "$watch" "$grace" "$home"; then
