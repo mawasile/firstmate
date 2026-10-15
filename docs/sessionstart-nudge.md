@@ -26,7 +26,7 @@ The tier is a property of the harness surface, not of the home.
 
 | Tier | What the adapter does | Used by |
 | --- | --- | --- |
-| Run | Executes `bin/fm-session-start.sh` through the native session-open adapter and gates its ordered digest into model context before the first turn. | Claude, `codex exec`, Pi / pi-signed, omp, Cursor |
+| Run | Executes `bin/fm-session-start.sh` through the native session-open adapter and gates its ordered digest into model context before the first turn. | Claude, `codex exec`, Pi / pi-signed, omp, Cursor, GitHub Copilot |
 | Nudge | Asks the agent to run the digest through the native adapter or the tracked session-start instruction. | Grok, OpenCode, and run-tier sources routed to the nudge |
 
 Codex's interactive TUI has no tracked session-open, compaction, or re-emit channel and is not covered by either tier.
@@ -40,6 +40,7 @@ Codex's interactive TUI has no tracked session-open, compaction, or re-emit chan
 | Codex interactive TUI | Uncovered | [Codex interactive TUI](#codex-interactive-tui) |
 | Pi / pi-signed | Run | [Pi and pi-signed](#pi-and-pi-signed) |
 | OpenCode | Nudge | [OpenCode](#opencode) |
+| GitHub Copilot CLI and SDK | Run | [GitHub Copilot](#github-copilot) |
 | Grok | Nudge | [Grok](#grok) |
 | Cursor | Run | [Cursor](#cursor) |
 | omp | Run | [omp](#omp) |
@@ -321,6 +322,18 @@ The OpenCode nudge runs only on `session.created`.
 The watcher-arm and turn-end plugins run later, on `session.idle`.
 The guard lets the watcher coordinator act first, so the plugins do not race for one lifecycle event.
 
+### GitHub Copilot
+
+GitHub Copilot CLI and the VS Code Copilot SDK host are run-tier harnesses.
+The tracked transport is the scoped user hook written by `bin/fm-copilot-hook-install.sh`.
+Copilot discovers that registration at session open and invokes `bin/fm-copilot-hook.sh session-start` with `startup`, `resume`, or `new`.
+The adapter passes the source to `bin/fm-sessionstart-run.sh` and returns the ordered digest as `additionalContext` before the first turn.
+
+The SDK runtime process is shared across logical VS Code chats.
+The hook therefore creates a guardian with the distinct `fm-copilot-ses` process title and passes that per-session pid to the lock owner.
+Ordinary tool calls retain ownership through their `COPILOT_AGENT_SESSION_ID` while that guardian remains live.
+A direct manual session-start call beneath only the shared runtime is deliberately read-only.
+
 ### Grok
 
 Grok is a nudge-tier harness.
@@ -418,6 +431,9 @@ Through the extension's public event surface, the same portable suite proves:
 - Ineligible stand-down.
 - Compaction cancellation.
 
+`tests/fm-copilot-primary.test.sh` separately proves Copilot's hook delivery with portable payload fixtures.
+It also proves marker and runtime detection, per-session lock ownership beneath a shared runtime, startup context delivery, pre-tool denial, and bounded turn-end continuation.
+
 ### Runtime bound test
 
 `tests/fm-session-start.test.sh` proves the runtime bound through the forced pure-Bash fallback.
@@ -454,6 +470,7 @@ Its separate `FM_PI_SESSIONSTART_RACE_LIVE_E2E=1` mode uses real Pi with an offl
 That mode proves both an immediate prompt and a completed-before-prompt control make their first provider call with exactly one native startup context and no manual execution.
 
 Cursor uses the separate primary live guard named in [Cursor tests](#cursor-tests) because its source-free `sessionStart` and stop-hook park are validated together.
+Copilot uses `tests/fm-copilot-primary-live-e2e.test.sh`, which verifies scoped-hook discovery, startup delivery, and session-specific ownership against an installed Copilot CLI.
 
 `tests/fm-sessionstart-instruction-refresh-live-e2e.test.sh` is the separate opt-in real-Pi guard for a post-start AGENTS.md update followed by compaction.
 

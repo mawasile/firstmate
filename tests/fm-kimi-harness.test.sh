@@ -10,7 +10,8 @@ set -u
 # its own real ancestry, either of which can decide a case the detection cases
 # meant to control. Drop the ambient markers so the asserted verdict does not
 # depend on which harness launched the suite.
-unset CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT CURSOR_AGENT CURSOR_INVOKED_AS
+unset CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT CURSOR_AGENT CURSOR_INVOKED_AS \
+  COPILOT_CLI COPILOT_AGENT_SESSION_ID FM_COPILOT_SESSION_PID
 
 SPAWN="$ROOT/bin/fm-spawn.sh"
 TEARDOWN="$ROOT/bin/fm-teardown.sh"

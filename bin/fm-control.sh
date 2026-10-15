@@ -129,6 +129,8 @@
 #   FM_CONTROL_SETTLE_WAIT       adapter acknowledgement wait after interrupt (5)
 #   FM_CONTROL_ARM_WAIT          wait for an armed interrupt's rendered proof
 #                                after the press gap (1.5)
+#   FM_CONTROL_DEFER_WAIT        wait for a turn to leave a not-yet-interruptible
+#                                phase before the first interrupt press (20)
 #   FM_CONTROL_EXIT_WAIT         alive->dead wait after the exit command (30)
 #   FM_CONTROL_LAUNCH_WAIT       dead->alive wait after a relaunch (90)
 #   FM_CONTROL_EXIT_RETRIES      Enter retries for the exit command (3)
@@ -185,6 +187,7 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 POLL=${FM_CONTROL_POLL:-0.5}
 SETTLE_WAIT=${FM_CONTROL_SETTLE_WAIT:-5}
 ARM_WAIT=${FM_CONTROL_ARM_WAIT:-1.5}
+DEFER_WAIT=${FM_CONTROL_DEFER_WAIT:-20}
 EXIT_WAIT=${FM_CONTROL_EXIT_WAIT:-30}
 LAUNCH_WAIT=${FM_CONTROL_LAUNCH_WAIT:-90}
 EXIT_RETRIES=${FM_CONTROL_EXIT_RETRIES:-3}
@@ -432,6 +435,22 @@ wait_rendered() {  # <ere> <timeout>
   done
 }
 
+# wait_rendered_gone <ere> <timeout>: poll a READABLE viewport until no row
+# matches. An unreadable viewport is not proof the phase ended, so it keeps
+# waiting and returns 1 at the bound.
+wait_rendered_gone() {  # <ere> <timeout>
+  local elapsed=0 step screen
+  step=$(awk -v p="$POLL" 'BEGIN{printf "%s", (p < 0.1 ? p : 0.1)}')
+  while :; do
+    if screen=$(fm_backend_visible_capture "$BACKEND" "$T" "$LABEL" 2>/dev/null); then
+      printf '%s\n' "$screen" | grep -Eq -- "$1" || return 0
+    fi
+    awk -v e="$elapsed" -v t="$2" 'BEGIN{exit !(e < t)}' || return 1
+    sleep "$step"
+    elapsed=$(awk -v e="$elapsed" -v p="$step" 'BEGIN{printf "%.3f", e + p}')
+  done
+}
+
 # dismiss_interrupt_hazard <key> <ere>: after the presses, close a surface a
 # mistimed press opened (Devin's revert picker) with one more key, before
 # anything else can be typed into it. Sets INTERRUPT_HAZARD.
@@ -456,21 +475,27 @@ dismiss_interrupt_hazard() {  # <key> <ere>
 # with an arm signal (fm_control_interrupt_arm_signal) gets each later press
 # only after the viewport proves the first one armed a running turn, and never
 # sooner than its press gap; without that proof INTERRUPT_ARMED=no and no
-# further press is sent. Its hazard surface is then closed before returning.
+# further press is sent. Its hazard surface is then closed before returning. An
+# adapter with a defer signal (fm_control_interrupt_defer_signal) gets no press
+# at all until that not-yet-interruptible phase has cleared from the viewport.
 send_interrupt_keys() {
-  local key repeat clear arm hazard gap i=0
+  local key repeat clear arm hazard defer gap i=0
   key=$(fm_control_interrupt_key "$HARNESS")
   repeat=$(fm_control_interrupt_repeat "$HARNESS")
   clear=$(fm_control_interrupt_clear_key "$HARNESS")
   arm=$(fm_control_interrupt_arm_signal "$HARNESS")
   hazard=$(fm_control_interrupt_hazard_signal "$HARNESS")
+  defer=$(fm_control_interrupt_defer_signal "$HARNESS")
   gap=$(fm_control_interrupt_press_gap "$HARNESS")
   fm_control_backend_supports_key "$BACKEND" "$key" \
     || die "harness $HARNESS interrupts with $key, which the $BACKEND backend cannot deliver; refusing to send a different key"
   [ -z "$clear" ] || fm_control_backend_supports_key "$BACKEND" "$clear" \
     || die "harness $HARNESS needs $clear to clear its composer after an interrupt, which the $BACKEND backend cannot deliver; refusing to leave the cancelled prompt where the next submitted line would concatenate onto it"
-  [ -z "$arm$hazard" ] || fm_backend_visible_capture_supported "$BACKEND" \
+  [ -z "$arm$hazard$defer" ] || fm_backend_visible_capture_supported "$BACKEND" \
     || die "harness $HARNESS must see its screen between interrupt presses, because a repeated $key on an idle agent opens its revert picker, and the $BACKEND backend has no verified viewport read; refusing to press blind"
+  if [ -n "$defer" ] && ! wait_rendered_gone "$defer" "$DEFER_WAIT"; then
+    die "task $ID's $HARNESS turn stayed in its not-yet-interruptible phase for ${DEFER_WAIT}s; a $key pair there cancels the turn and restores its whole prompt into the composer, so nothing was sent. Retry '$VERB' once the turn is producing output"
+  fi
   INTERRUPT_ARMED=yes
   INTERRUPT_HAZARD=none
   while [ "$i" -lt "$repeat" ]; do
@@ -526,21 +551,22 @@ interrupt_cancel_claim() {
 # adapter's first press rendered no running turn, so nothing was cancelled; a
 # dismissed revert picker is reported beside the claim.
 deliver_interrupt() {
-  local cancel devin_gen=
-  # Devin does not emit Stop for cancellation. Capture this incarnation before
-  # keys, then invalidate its state conservatively rather than claiming idle.
-  if [ "$HARNESS" = devin ]; then
-    devin_gen=$(fm_busy_current_gen "$STATE" "$ID" 2>/dev/null || true)
-  fi
+  local cancel invalidate_gen=
+  # Devin and Copilot emit no stop hook for a cancellation. Capture this
+  # incarnation before keys, then invalidate its state conservatively rather
+  # than claiming idle.
+  case "$HARNESS" in
+    devin|copilot) invalidate_gen=$(fm_busy_current_gen "$STATE" "$ID" 2>/dev/null || true) ;;
+  esac
   prepare_interrupt_ack
   send_interrupt_keys
   if [ "$INTERRUPT_ARMED" = no ]; then
     cancel=not-running
   else
     cancel=$(interrupt_cancel_claim)
-    if [ "$HARNESS" = devin ] && [ -n "$devin_gen" ]; then
+    if [ -n "$invalidate_gen" ]; then
       "$SCRIPT_DIR/fm-busy-event.sh" apply "$STATE" "$ID" unknown \
-        --gen "$devin_gen" --source fm-interrupt --event interrupt >/dev/null 2>&1 || true
+        --gen "$invalidate_gen" --source fm-interrupt --event interrupt >/dev/null 2>&1 || true
     fi
   fi
   [ "$INTERRUPT_HAZARD" = none ] || cancel="$cancel revert-picker=$INTERRUPT_HAZARD"

@@ -64,7 +64,7 @@ fm_control_verb_allowed() {  # <verb>
 # section 4's verified-adapter list; an unverified adapter is refused rather
 # than guessed at, exactly as a spawn on it would be.
 fm_control_harnesses() {
-  printf '%s\n' claude codex opencode pi pi-signed grok kimi cursor gemini muse rovo omp agy devin
+  printf '%s\n' claude codex opencode pi pi-signed grok kimi cursor gemini muse rovo omp agy devin copilot
 }
 
 fm_control_harness_supported() {  # <harness>
@@ -82,7 +82,8 @@ fm_control_harness_supported() {  # <harness>
 # and friends. This is the one place that prefix rule is stated. `pi` and
 # `pi-signed` are exact because a `pi*` prefix would swallow the signed adapter,
 # `omp` is exact because an `omp*` prefix would claim unrelated commands, `agy`
-# is exact for the same reason on an even shorter name, and an
+# is exact for the same reason on an even shorter name, `copilot` is exact so a
+# `copilot*` prefix never claims the VS Code SDK's `copilot-runtime` host, and an
 # unrecognized value returns nonzero rather than being guessed into a family.
 fm_control_harness_family() {  # <recorded-harness>
   case "${1-}" in
@@ -91,6 +92,7 @@ fm_control_harness_family() {  # <recorded-harness>
     omp) printf 'omp' ;;
     agy) printf 'agy' ;;
     devin) printf 'devin' ;;
+    copilot) printf 'copilot' ;;
     claude*) printf 'claude' ;;
     codex*) printf 'codex' ;;
     opencode*) printf 'opencode' ;;
@@ -104,9 +106,11 @@ fm_control_harness_family() {  # <recorded-harness>
   esac
 }
 
-# Which task kinds an adapter is verified to run. muse, gemini, rovo, agy, and devin
-# are crewmate/scout adapters only: none has a primary supervision protocol,
-# and bin/fm-spawn.sh refuses a --secondmate launch on any of them. The control
+# Which task kinds an adapter is verified to run. muse, gemini, rovo, agy, devin,
+# and copilot are crewmate/scout adapters only: none has a verified secondmate
+# launch (copilot's primary integration is a user-level hook scoped to one home,
+# not a launch a parent can stand up), and bin/fm-spawn.sh refuses a
+# --secondmate launch on any of them. The control
 # plane asks this BEFORE it stops anything, so an incompatible relaunch target is
 # refused while the current agent is still running rather than after it has
 # been stopped.
@@ -114,7 +118,7 @@ fm_control_harness_supports_kind() {  # <harness> <kind>
   local harness=${1-} kind=${2-}
   fm_control_harness_supported "$harness" || return 1
   case "$harness" in
-    muse|gemini|rovo|agy|devin) [ "$kind" != secondmate ] || return 1 ;;
+    muse|gemini|rovo|agy|devin|copilot) [ "$kind" != secondmate ] || return 1 ;;
   esac
   return 0
 }
@@ -131,17 +135,19 @@ fm_control_harness_supports_kind() {  # <harness> <kind>
 # through Herdr).
 fm_control_interrupt_key() {  # <harness>
   case "${1-}" in
-    claude|codex|opencode|pi|pi-signed|omp|kimi|cursor|gemini|muse|rovo|agy|devin) printf 'Escape' ;;
+    claude|codex|opencode|pi|pi-signed|omp|kimi|cursor|gemini|muse|rovo|agy|devin|copilot) printf 'Escape' ;;
     grok) printf 'C-c' ;;
     *) return 1 ;;
   esac
 }
 
-# How many times the interrupt key must be delivered. OpenCode and Devin need a double
-# Escape; every other verified adapter interrupts on a single press.
+# How many times the interrupt key must be delivered. OpenCode, Devin, and
+# Copilot need a double Escape; every other verified adapter interrupts on a
+# single press. Copilot ignores a lone Escape on a running turn: it only arms
+# `esc again to interrupt` for about 0.6 s (verified live, Copilot CLI 1.0.97).
 fm_control_interrupt_repeat() {  # <harness>
   case "${1-}" in
-    opencode|devin) printf '2' ;;
+    opencode|devin|copilot) printf '2' ;;
     claude|codex|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy) printf '1' ;;
     *) return 1 ;;
   esac
@@ -157,10 +163,13 @@ fm_control_interrupt_repeat() {  # <harness>
 # sooner than fm_control_interrupt_press_gap: an unproven arm sends nothing
 # more. Verified live on devin 3000.11.1: an idle pair opened the picker at a
 # 0.05-0.1 s gap and did not at 0.15 s or more, and a running turn cancelled
-# with a 0.6 s gap.
+# with a 0.6 s gap. Copilot has the same hazard with its "Rewind to a previous
+# point" picker: one Escape on a running turn renders `esc again to interrupt`,
+# while one Escape on an idle agent renders `esc again to rewind`, so the
+# running-turn proof is the same string (verified live, Copilot CLI 1.0.97).
 fm_control_interrupt_arm_signal() {  # <harness>
   case "${1-}" in
-    devin) printf '%s' 'esc again to interrupt' ;;
+    devin|copilot) printf '%s' 'esc again to interrupt' ;;
     claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy) ;;
     *) return 1 ;;
   esac
@@ -169,10 +178,31 @@ fm_control_interrupt_arm_signal() {  # <harness>
 # The minimum seconds between two presses of an armed interrupt: several times
 # Devin's observed idle double-tap window, well inside its three-second armed
 # window. A turn that ends between the presses therefore cannot pair them.
+# Copilot's armed window is only about 0.6 s and an idle pair still opened its
+# rewind picker at a 0.45 s gap, so no gap separates the two there: its gap
+# stays well inside the armed window, and the hazard dismissal below is what
+# closes a picker a turn ending between the presses could open.
 fm_control_interrupt_press_gap() {  # <harness>
   case "${1-}" in
     devin) printf '0.5' ;;
-    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy) printf '0.2' ;;
+    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy|copilot) printf '0.2' ;;
+    *) return 1 ;;
+  esac
+}
+
+# A rendered phase in which a running turn is not yet interruptible, so the
+# first interrupt press waits for it to clear; empty when the adapter has none.
+# Copilot opens every turn in an `esc edit prompt` phase until output starts
+# streaming. There one Escape arms `esc again to edit prompt`, and a pair
+# cancels the turn AND restores the whole prompt into the composer, where a
+# multi-line launch brief cannot be cleared with one line-clear key and the next
+# steer or exit command would concatenate onto it (verified live, Copilot CLI
+# 1.0.97). A slash command typed then is queued until the turn ends, so neither
+# verb can act during that phase.
+fm_control_interrupt_defer_signal() {  # <harness>
+  case "${1-}" in
+    copilot) printf '%s' 'esc (again to )?edit prompt' ;;
+    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy|devin) ;;
     *) return 1 ;;
   esac
 }
@@ -182,9 +212,13 @@ fm_control_interrupt_press_gap() {  # <harness>
 # when the adapter has none. Devin's revert picker is recognized by either of
 # two independent rows, its `Revert to step:` title or its `↵ revert` footer,
 # and Escape cancels it without reverting (verified live, devin 3000.11.1).
+# Copilot's rewind picker is recognized the same way, by its `Rewind to a
+# previous point` title or its `Enter Select · Esc Cancel` footer, and Escape
+# cancels it without rewinding (verified live, Copilot CLI 1.0.97).
 fm_control_interrupt_hazard_signal() {  # <harness>
   case "${1-}" in
     devin) printf '%s' 'Revert to step:|↵ revert' ;;
+    copilot) printf '%s' 'Rewind to a previous point|Enter Select · Esc Cancel' ;;
     claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy) ;;
     *) return 1 ;;
   esac
@@ -200,13 +234,15 @@ fm_control_interrupt_hazard_signal() {  # <harness>
 # follow-up` placeholder, so it needs no clear key. gemini was checked the
 # same way and also does not repollute: after a single Escape it prints
 # `Request cancelled.` and its composer shows only the `Type your message
-# or @path/to/file` placeholder. Prints the key or nothing;
+# or @path/to/file` placeholder. Copilot does not repollute either: after its
+# armed double Escape it prints `Operation cancelled by user` above an empty
+# `❯` composer (verified live, Copilot CLI 1.0.97). Prints the key or nothing;
 # a harness with no verified mechanics returns nonzero, matching the tables
 # above.
 fm_control_interrupt_clear_key() {  # <harness>
   case "${1-}" in
     muse) printf 'C-u' ;;
-    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo|agy|devin) ;;
+    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo|agy|devin|copilot) ;;
     *) return 1 ;;
   esac
 }
@@ -221,7 +257,7 @@ fm_control_interrupt_ack_source() {  # <harness>
     # rovo's TUI prints "Agent cancelled" on Escape, but for parity with
     # claude/cursor this stays 'none': the ack is a rendered string, not a
     # recorded state source, and rovo has no busy wiring to confirm against.
-    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo|agy|devin) printf 'none' ;;
+    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo|agy|devin|copilot) printf 'none' ;;
     *) return 1 ;;
   esac
 }
@@ -229,7 +265,7 @@ fm_control_interrupt_ack_source() {  # <harness>
 # The command that exits the agent from its own composer.
 fm_control_exit_command() {  # <harness>
   case "${1-}" in
-    claude|opencode|grok|kimi|cursor|muse|rovo) printf '/exit' ;;
+    claude|opencode|grok|kimi|cursor|muse|rovo|copilot) printf '/exit' ;;
     codex|pi|pi-signed|omp|gemini|agy|devin) printf '/quit' ;;
     *) return 1 ;;
   esac
@@ -415,6 +451,10 @@ fm_control_harness_wiring_paths() {  # <harness> <worktree> <state-dir> <id> [ki
     # the project, and nothing global is installed.
     gemini) printf '%s\n' "$state/$id.gemini-settings.json" ;;
     devin) printf '%s\n' "$state/$id.devin-config.json" ;;
+    # copilot's lifecycle hooks live in a firstmate-owned plugin directory the
+    # launch mounts with --plugin-dir. Removing its manifest unloads every hook
+    # the incarnation registered; teardown removes the directory itself.
+    copilot) printf '%s\n' "$state/$id.copilot-plugin/plugin.json" ;;
   esac
 }
 

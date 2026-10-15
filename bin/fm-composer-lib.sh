@@ -122,7 +122,7 @@
 # it is a dead-shell prompt and classifies `unknown` (never a safe injection
 # target). A `$` followed immediately by a digit is Pi's cost footer, not this
 # prompt (`FM_COMPOSER_PI_STATUS_RE_DEFAULT`).
-# The AGENT glyphs `❯` (claude), `›` (codex), `⟩` (U+27E9, muse),
+# The AGENT glyphs `❯` (claude, copilot), `›` (codex), `⟩` (U+27E9, muse),
 # `→` (U+2192, cursor), and `❭` (U+276D, devin) are a genuine empty agent
 # composer either way.
 # Both glyph sets are declared
@@ -352,7 +352,8 @@ fm_composer_strip_ghost() {
 # asking what a worker is doing, and the two must not be conflated.
 # Delivery-only rendered busy footers per harness. claude/codex: "esc to
 # interrupt"; opencode: "esc interrupt"; pi: "Working..."; omp: "Working…"; grok: "Ctrl+c:cancel"; agy: "esc to cancel";
-# devin: "esc twice to interrupt" and its "❭ Guide Devin while it works" working composer.
+# devin: "esc twice to interrupt" and its "❭ Guide Devin while it works" working composer;
+# copilot: "esc interrupt" plus its early-turn "esc edit prompt".
 # Claude's current spinner has a rotating glyph and word, but every active-turn
 # line has an ellipsis followed by a parenthesized elapsed duration. Keep this
 # signature separate from the shared default because that shape is not generic
@@ -377,11 +378,19 @@ fm_composer_strip_ghost() {
 # tmux agy endpoint reaches the submit core with no recorded harness, and its
 # bare `>` composer verdict is `unknown`, so the busy footer is the only
 # turn-started acknowledgement that path can read.
-FM_DELIVERY_BUSY_REGEX_DEFAULT='esc (to )?interrupt|Working(\.\.\.|…)|Ctrl\+c:cancel|ctrl\+c to stop|esc[[:space:]]+to[[:space:]]+cancel|esc twice to interrupt|^[[:space:]]*❭ Guide Devin while it works$'
+FM_DELIVERY_BUSY_REGEX_DEFAULT='esc ((again )?to )?interrupt|Working(\.\.\.|…)|Ctrl\+c:cancel|ctrl\+c to stop|esc[[:space:]]+to[[:space:]]+cancel|esc twice to interrupt|^[[:space:]]*❭ Guide Devin while it works$|esc edit prompt'
 FM_DELIVERY_CLAUDE_BUSY_REGEX_DEFAULT='esc to interrupt|…[[:space:]]+\([0-9]+[smh]'
 # Devin 3000.11.1: the working composer and interrupt hint are independent
 # delivery signals. Neither is used as semantic worker-state evidence.
 FM_DELIVERY_DEVIN_BUSY_REGEX_DEFAULT='esc twice to interrupt|^[[:space:]]*❭ Guide Devin while it works$'
+# GitHub Copilot CLI 1.0.97 renders its status row as `◎ Working · 108 B esc
+# interrupt` once output streams, `● Working esc edit prompt` before it does,
+# and `esc again to interrupt` while an interrupt press is armed. The hint
+# tokens and the spinner-led `Working` row are independent delivery signals.
+# Transcript replies also lead with `●`, so the spinner form requires the status
+# row's own `·` or `esc` continuation. Delivery guard only; recorded worker
+# state comes from the copilot-hook source in bin/fm-busy-lib.sh.
+FM_DELIVERY_COPILOT_BUSY_REGEX_DEFAULT='esc (again to )?interrupt|esc edit prompt|^[[:space:]]*(◎|○|◉|●)[[:space:]]+Working[[:space:]]+(·|esc[[:space:]])'
 FM_DELIVERY_CODEX_BUSY_REGEX_DEFAULT='esc to interrupt'
 FM_DELIVERY_OPENCODE_BUSY_REGEX_DEFAULT='esc interrupt'
 FM_DELIVERY_PI_BUSY_REGEX_DEFAULT='Working\.\.\.'
@@ -430,6 +439,7 @@ fm_busy_lines_match() {  # [harness]
     case "$harness" in
       claude) regex=$FM_DELIVERY_CLAUDE_BUSY_REGEX_DEFAULT ;;
       devin) regex=$FM_DELIVERY_DEVIN_BUSY_REGEX_DEFAULT ;;
+      copilot) regex=$FM_DELIVERY_COPILOT_BUSY_REGEX_DEFAULT ;;
       codex) regex=$FM_DELIVERY_CODEX_BUSY_REGEX_DEFAULT ;;
       opencode) regex=$FM_DELIVERY_OPENCODE_BUSY_REGEX_DEFAULT ;;
       pi|pi-signed) regex=$FM_DELIVERY_PI_BUSY_REGEX_DEFAULT ;;
@@ -793,6 +803,38 @@ _fm_composer_titled_rule_row() {  # <trimmed-row> <plain-rule-spaces>
   [ "$spaces" = "$expected" ]
 }
 
+# _fm_composer_edge_repeats_corner: 0 when a row shaped like a container edge
+# repeats its family's corner glyphs between its two ends. A real container
+# edge carries corners only at its ends; adjacent glyph art such as the GitHub
+# Copilot CLI logo row `╭─╮╭─╮` (verified, Copilot CLI 1.0.97) repeats them.
+# Read as a box top, that logo never closes, so every row below it - the live
+# composer included - would sit inside an unclosed box and read unsafe.
+# Matching is by literal glyph alternatives, never a bracket expression,
+# because a bracket over multibyte glyphs matches single bytes under LC_ALL=C
+# and every box-drawing glyph shares its lead bytes with the `─` rule.
+_fm_composer_edge_repeats_corner() {  # <family> <trimmed-row>
+  local inner=$2
+  case "$1" in
+    rounded)
+      inner=${inner#╭}; inner=${inner#╰}; inner=${inner%╮}; inner=${inner%╯}
+      case "$inner" in *╭*|*╮*|*╰*|*╯*) return 0 ;; esac
+      ;;
+    light)
+      inner=${inner#┌}; inner=${inner#└}; inner=${inner%┐}; inner=${inner%┘}
+      case "$inner" in *┌*|*┐*|*└*|*┘*) return 0 ;; esac
+      ;;
+    double)
+      inner=${inner#╔}; inner=${inner#╚}; inner=${inner%╗}; inner=${inner%╝}
+      case "$inner" in *╔*|*╗*|*╚*|*╝*) return 0 ;; esac
+      ;;
+    heavy)
+      inner=${inner#┏}; inner=${inner#┗}; inner=${inner%┓}; inner=${inner%┛}
+      case "$inner" in *┏*|*┓*|*┗*|*┛*) return 0 ;; esac
+      ;;
+  esac
+  return 1
+}
+
 # Row-scan results are returned through FM_COMPOSER_SCAN_* globals (bash 3.2
 # has no nameref); they are internal to this owner.
 _fm_composer_scan_screen() {  # <plain-screen> <cursor-or-empty> [extract-wrap]
@@ -851,6 +893,14 @@ _fm_composer_scan_screen() {  # <plain-screen> <cursor-or-empty> [extract-wrap]
       '╚'*'╝') kind=bottom; family=double ;;
       '┗'*'┛') kind=bottom; family=heavy ;;
       '+'*'+') kind=ascii; family=ascii ;;
+    esac
+    case "$kind" in
+      top|bottom)
+        if _fm_composer_edge_repeats_corner "$family" "$trimmed"; then
+          kind=
+          family=
+        fi
+        ;;
     esac
     # This row's glyph proof, computed once for every envelope that contains
     # it: the same side-border strip _fm_composer_row_content performs, then

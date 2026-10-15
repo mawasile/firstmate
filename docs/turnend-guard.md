@@ -96,24 +96,24 @@ The guard cooperates with that arm rather than trusting a beacon left by the cyc
 
 ### Foreign session-lock owner
 
-When an active home instead has a live session lock held by a verified harness that the current session does not own, the Claude guard emits a read-only ownership diagnostic and allows the turn to end safely.
+When an active home instead has a live session lock held by a verified harness that the current session does not own, the Claude and Copilot guards emit a read-only ownership diagnostic and allow the turn to end safely.
 
 Ownership is the shared `fm_session_lock_owned_by_self` verdict in `bin/fm-session-lock-lib.sh`.
 The current session owns the lock when either of these holds:
 
 - The recorded pid is a member of the current session's contiguous harness ancestry.
-- The trusted Claude session id recorded beside the lock in `state/.lock-session` matches this hook's own environment while the recorded pid is still a live harness.
+- The trusted Claude or Copilot session id recorded beside the lock in `state/.lock-session` matches this hook's own environment while the recorded pid is still a live harness.
 
-That second signal keeps a background Claude session owning its own lock after the transient helper chain between its hooks and its recorded owner is recycled.
-The library's header owns the trust gate (`CLAUDE_PID` must be a Claude-shaped member of the current run).
+That second signal keeps a background Claude session owning its own lock after the transient helper chain between its hooks and its recorded owner is recycled, and keeps a Copilot tool call bound to its logical-session guardian rather than the shared runtime.
+The library's header owns both trust gates.
 `bin/fm-lock.sh` owns the sidecar and the line-1 anchor it records for such a session.
 
-A Claude session that does not own the lock cannot arm or repair the home without stealing the live owner's lock, so blocking it would create an unbounded loop.
+A Claude or Copilot session that does not own the lock cannot arm or repair the home without stealing the live owner's lock, so blocking it would create an unbounded loop.
 The lock-owning session remains responsible for restoring supervision.
 
 The exception has these limits:
 
-- Malformed, absent, dead, or ancestry-uncertain lock records do not satisfy this Claude-specific exception and retain the ordinary guard behavior.
+- Malformed, absent, dead, or ancestry-uncertain lock records do not satisfy this exception and retain the ordinary guard behavior.
 - A missing or mismatched sidecar or an untrusted id adds nothing to the verdict, so a live owner outside the ancestry still takes this exit exactly as before.
 
 ### Pull-warning verdict by supervision model
@@ -258,6 +258,7 @@ Each enabled primary harness adapts its own turn-end mechanism to the shared gua
 | Claude | Two `Stop` hooks in `.claude/settings.json` | Blocks with exit status 2, cooperating with the Stop auto-arm |
 | Codex | `Stop` hook in `.codex/hooks.json` | Blocks with exit status 2 |
 | OpenCode | `session.idle` in `.opencode/plugins/fm-primary-turnend-guard.js` | Passive callback that schedules one follow-up |
+| GitHub Copilot | The scoped `agentStop` hook installed by `bin/fm-copilot-hook-install.sh` | Blocks with a native decision for one bounded continuation |
 | Pi | `agent_settled` in `.pi/extensions/fm-primary-turnend-guard.ts` | Passive callback that schedules one follow-up |
 | omp | `session_stop` in `.omp/extensions/fm-primary-turnend-guard.ts` | Blocking hook that compels one continuation |
 | Cursor | `stop` hook in `.cursor/hooks.json` | Cannot block, so it parks and returns at most one follow-up |
@@ -272,6 +273,7 @@ The registrations in detail:
   [Runtime backend verification](verification/runtime-backends.md#secondmate-busy-contract) owns the live evidence.
 - Codex registers a `Stop` hook in `.codex/hooks.json`, anchors the executable to the hook process working directory, verifies a Firstmate-shaped hook-bearing root, and passes the original payload to the shared guard.
 - OpenCode listens for `session.idle` in `.opencode/plugins/fm-primary-turnend-guard.js`, lets the watcher coordinator act first, and calls `client.session.promptAsync` once when the guard returns 2.
+- GitHub Copilot invokes `bin/fm-copilot-hook.sh agent-stop`, which maps the shared guard's exit 2 to Copilot's native `decision: "block"` and operationally typed continuation reason.
 - Pi listens for `agent_settled` in `.pi/extensions/fm-primary-turnend-guard.ts`, runs once per logical agent run, and calls `pi.sendUserMessage(..., { deliverAs: "followUp" })` once when the guard returns 2.
 - omp answers its blocking `session_stop` hook in `.omp/extensions/fm-primary-turnend-guard.ts`, passing the payload's own `stop_hook_active` to the shared guard.
   When the guard returns 2, it returns `{ continue: true, additionalContext }`, so the continuation is compelled rather than requested.
@@ -432,6 +434,7 @@ Each passive adapter owns a loop latch:
 
 - Pi keeps the latch across internal tool turns and clears it only when the generated follow-up settles or delivery fails.
 - OpenCode's forced follow-up is supported for persistent TUI sessions and remains fail-open in headless `opencode run`.
+- Copilot's `agentStop` hook carries `stop_hook_active`, so the shared one-continuation bound applies before Copilot's own eight-block ceiling.
 
 ### Grok capability selection
 

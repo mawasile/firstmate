@@ -49,11 +49,20 @@ fm_agent_process_classify_name() {  # <path> [argv0] -> agent|shell|other
     # single binary, comm=agy with argv[0]=agy), and a glob would claim
     # unrelated commands containing that fragment. devin is anchored the same
     # way (verified, devin 3000.11.1: comm=devin), so a `*devin*` glob never
-    # claims an unrelated command.
-    agy|devin) printf 'agent' ;;
+    # claims an unrelated command. copilot is anchored too, so neither the VS
+    # Code SDK's copilot-runtime host nor another copilot-named tool reads as a
+    # worker.
+    agy|devin|copilot) printf 'agent' ;;
     zsh|bash|sh|dash|ash|ksh|mksh|tcsh|csh|fish) printf 'shell' ;;
     *)
       if fm_harness_path_name "$path" >/dev/null || fm_harness_path_name "$argv0" >/dev/null; then
+        printf 'agent'
+      # GitHub Copilot CLI renames its main thread, so its kernel process name
+      # is `MainThread` for both the node launcher and the native engine, while
+      # the engine's argv[0] is its install path ending in the exact `copilot`
+      # basename (verified live, Copilot CLI 1.0.97 on Linux). The basename is
+      # anchored for the reason given above.
+      elif [ "${argv0##*/}" = copilot ]; then
         printf 'agent'
       # cursor-agent runs as a bundled node script, so tmux reports the pane
       # command as a bare `node` that no name pattern above can own, and its

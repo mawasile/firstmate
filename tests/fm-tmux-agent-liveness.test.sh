@@ -66,6 +66,11 @@ ln -s "$STANDIN_BIN" "$LAB/bin/notaharness"
 ln -s "$STANDIN_BIN" "$LAB/bin/omp"
 ln -s "$STANDIN_BIN" "$LAB/bin/ompd"
 ln -s "$STANDIN_BIN" "$LAB/bin/comp"
+# GitHub Copilot CLI renames its main thread, so both its node launcher and its
+# native engine carry the kernel process name `MainThread`, and only the
+# engine's argv[0] - its install path ending in the exact `copilot` basename -
+# names the harness (verified live, Copilot CLI 1.0.97 on Linux).
+ln -s "$STANDIN_BIN" "$LAB/bin/MainThread"
 # muse's installed binary is muse-bin-<version>: the launcher execs it, so the
 # version is the LIVE process name and it changes on every auto-update. Unlike
 # Claude Code's version-named binary there is no `muse` path component to fall
@@ -208,6 +213,29 @@ for decoy in ompd comp; do
     || fail "'$decoy' merely contains 'omp' and must not classify as a live agent pane"
 done
 pass "tmux liveness: unrelated omp-containing command names stay ambiguous"
+
+# --- Copilot's renamed main thread ------------------------------------------
+# The kernel name is the generic `MainThread`, so the argv[0] install path is
+# the only signal; the decoy proves the basename stays anchored.
+
+new_window copilot bash -c "exec -a '$LAB/pkg/@github/copilot-linux-x64/copilot' '$LAB/bin/MainThread' 900"
+wait_for_state "$SESSION:copilot" alive \
+  || fail "Copilot's MainThread process with a copilot argv[0] must classify alive"
+# On Linux the kernel name is the exec name, so prove that source is blinded
+# and the verdict was carried by argv[0] rather than by `MainThread`.
+if [ "$(uname -s)" = Linux ]; then
+  copilot_comms=$(fm_backend_tmux_foreground_comms "$SESSION:copilot")
+  [ "$copilot_comms" = MainThread ] \
+    || fail "the Copilot stand-in must expose only the MainThread kernel name, got '$copilot_comms'"
+  [ "$(fm_agent_process_classify_name "$copilot_comms")" != agent ] \
+    || fail "the MainThread kernel name alone must not classify as an agent"
+fi
+pass "tmux liveness: Copilot's renamed MainThread process classifies alive from its argv[0]"
+
+new_window decoy-copilot bash -c "exec -a '$LAB/pkg/@github/copilot-linux-x64/copilot-helper' '$LAB/bin/MainThread' 900"
+wait_for_state "$SESSION:decoy-copilot" ambiguous \
+  || fail "a copilot-helper argv[0] merely contains 'copilot' and must not classify as a live agent pane"
+pass "tmux liveness: an unrelated copilot-containing argv[0] stays ambiguous"
 
 # --- a version name blinds one source ---------------------------------------
 # Giving a genuine harness-named executable the version-string argv[0] that

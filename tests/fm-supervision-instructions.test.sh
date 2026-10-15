@@ -58,7 +58,7 @@ test_supervision_host_protocol_on_every_arm_owner() {
   home="$TMP_ROOT/host-owners-home"
   config="$TMP_ROOT/host-owners-config"
   mkdir -p "$home/state" "$config"
-  for harness in claude cursor opencode omp grok codex; do
+  for harness in claude cursor opencode copilot omp grok codex; do
     : > "$config/supervision-host-off"
     plain=$(FM_HOME="$home" FM_CONFIG_OVERRIDE="$config" "$RENDER" --harness "$harness")
     assert_not_contains "$plain" "Supervision host" "$harness: a home opted out by config/supervision-host-off rendered the host protocol"
@@ -100,6 +100,8 @@ test_supervision_host_protocol_on_every_arm_owner() {
   hosted=$(FM_HOME="$home" FM_CONFIG_OVERRIDE="$config" "$RENDER" --harness codex)
   assert_contains "$hosted" 'FM_CODEX_WATCH_CHECKPOINT_AWAY' "codex must learn that an away checkpoint holds longer"
   assert_contains "$hosted" 'checkpoint: no actionable wake within' "codex must learn how the park boundary arrives"
+  hosted=$(FM_HOME="$home" FM_CONFIG_OVERRIDE="$config" "$RENDER" --harness copilot)
+  assert_contains "$hosted" 'checkpoint: no actionable wake within' "copilot must learn how the park boundary arrives"
   pass "renderer gives each non-Pi arm owner the host protocol in its own terms, and grok arms the host"
 }
 
@@ -213,6 +215,15 @@ test_cross_harness_ordinary_continuation_and_repair_matrix() {
   assert_not_contains "$ordinary" "bin/fm-watch-arm.sh" "opencode ordinary-wake line incorrectly calls the recovery probe"
   out=$("$RENDER" --harness opencode --repair-line)
   assert_contains "$out" "manual recovery probe" "opencode recovery line lost its manual probe"
+
+  out=$("$RENDER" --harness copilot)
+  ordinary=$(printf '%s\n' "$out" | grep -F -- '- Ordinary wake:')
+  assert_contains "$ordinary" "foreground bin/fm-watch-checkpoint.sh checkpoint" \
+    "copilot ordinary-wake line did not retain the foreground checkpoint"
+  assert_contains "$out" "Mode: GitHub Copilot foreground checkpoint." "copilot snippet missing"
+  out=$("$RENDER" --harness copilot --repair-line)
+  assert_contains "$out" "bin/fm-watch-checkpoint.sh --seconds" \
+    "copilot recovery line lost the foreground checkpoint"
 
   out=$("$RENDER" --harness claude)
   ordinary=$(printf '%s\n' "$out" | grep -F -- '- Ordinary wake:')

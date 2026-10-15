@@ -6,9 +6,11 @@
 # process found by walking the shell's ancestry, which lives as long as the
 # firstmate session - unlike the transient subshell PID of any one tool call,
 # which is dead moments after it is written. For a Claude session that proves a
-# trusted session id the anchor is CLAUDE_PID, the model-loop process, so a
-# shared transient daemon or a front-end that outlives the session never keeps
-# a dead session's lock alive. Line 1 keeps its whole-line pid format because
+# trusted session id the anchor is CLAUDE_PID, the model-loop process. For a
+# Copilot session it is the scoped logical-session guardian, never the shared
+# runtime. These choices ensure a shared transient daemon or a front-end that
+# outlives the session never keeps a dead session's lock alive. Line 1 keeps
+# its whole-line pid format because
 # every other reader takes the first line as the pid.
 #
 # The trusted id itself is recorded beside the lock in state/.lock-session, a

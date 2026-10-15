@@ -13,6 +13,8 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+unset COPILOT_CLI COPILOT_AGENT_SESSION_ID FM_COPILOT_SESSION_PID
+
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-supervision-lib.sh"
 
@@ -194,7 +196,7 @@ install_guard_scripts() {
   cp "$ROOT/bin/fm-wake-lib.sh" "$dir/bin/fm-wake-lib.sh"
   cp "$ROOT/bin/fm-path-lib.sh" "$dir/bin/fm-path-lib.sh"
   cp "$ROOT/bin/fm-hook-host-lib.sh" "$dir/bin/fm-hook-host-lib.sh"
-  cp "$ROOT/bin/fm-session-lock-lib.sh" "$dir/bin/fm-session-lock-lib.sh"
+  cp "$ROOT/bin/fm-session-lock-lib.sh" "$ROOT/bin/fm-copilot-lib.sh" "$dir/bin/"
   cp "$ROOT/bin/fm-cursor-lib.sh" "$dir/bin/fm-cursor-lib.sh"
   mkdir -p "$dir/docs"
   cp -R "$ROOT/docs/supervision-protocols" "$dir/docs/supervision-protocols"
@@ -1176,6 +1178,26 @@ EOF
   pass ".pi primary extension: delivery failure resets the logical-run latch"
 }
 
+test_hook_copilot_allows_foreign_live_owner() {
+  local dir out status
+  dir=$(make_primary_dir "$TMP_ROOT/hook-copilot-foreign-owner")
+  : >"$dir/state/task1.meta"
+  cat >"$dir/bin/fm-session-lock-lib.sh" <<'SH'
+FM_SESSION_LOCK_FOREIGN_OWNER_PID=4242
+fm_session_lock_foreign_owner_live() {
+  FM_SESSION_LOCK_FOREIGN_OWNER_PID=4242
+  return 0
+}
+SH
+  out=$(printf '%s' '{"sessionId":"copilot-read-only","stop_hook_active":false}' | \
+    FM_HOME="$dir" bash "$dir/bin/fm-turnend-guard.sh" --copilot 2>&1)
+  status=$?
+  expect_code 0 "$status" "Copilot must allow a read-only stop when another live session owns the lock"
+  assert_contains "$out" "ANOTHER LIVE SESSION" \
+    "Copilot foreign-owner allow did not report the ownership conflict"
+  pass "fm-turnend-guard --copilot: a foreign live owner allows the read-only stop"
+}
+
 # --- --claude cooperative mode -----------------------------------------------
 # In --claude mode the guard ignores stop_hook_active (Claude marks every stop
 # after ANY stop-hook continuation true, including asyncRewake rewake turns) and
@@ -1215,7 +1237,7 @@ install_integrated_autoarm() {
   cp "$ROOT/bin/fm-wake-lib.sh" "$dir/bin/fm-wake-lib.sh"
   cp "$ROOT/bin/fm-path-lib.sh" "$dir/bin/fm-path-lib.sh"
   cp "$ROOT/bin/fm-hook-host-lib.sh" "$dir/bin/fm-hook-host-lib.sh"
-  cp "$ROOT/bin/fm-session-lock-lib.sh" "$dir/bin/fm-session-lock-lib.sh"
+  cp "$ROOT/bin/fm-session-lock-lib.sh" "$ROOT/bin/fm-copilot-lib.sh" "$dir/bin/"
   cp "$ROOT/bin/fm-cursor-lib.sh" "$dir/bin/fm-cursor-lib.sh"
   cp "$ROOT/bin/fm-lock.sh" "$dir/bin/fm-lock.sh"
   cp "$ROOT/bin/fm-supervision-engine-lib.sh" "$dir/bin/fm-supervision-engine-lib.sh"
@@ -2246,6 +2268,7 @@ test_codex_hook_ignores_nested_git_root_guard
 test_opencode_plugin_anchors_guard_to_worktree
 test_pi_extension_injects_once_per_logical_agent_run
 test_pi_extension_retries_after_followup_delivery_failure
+test_hook_copilot_allows_foreign_live_owner
 test_hook_claude_mode_reblocks_stop_hook_active_when_unhealthy
 test_hook_claude_mode_reblocks_x_mode_without_tasks
 test_hook_claude_mode_allows_when_autoarm_owner_alive

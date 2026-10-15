@@ -4,13 +4,14 @@
 #
 # SUPERVISION HOST. A home opted in with config/supervision-host
 # (docs/configuration.md "Supervision host" owns the gate;
-# config/supervision-host-off opts out, and a Codex home without the file does not run the host) runs
+# config/supervision-host-off opts out, and a Codex or Copilot home without the
+# file does not run the host) runs
 # bin/fm-supervision-host.sh in the watcher's place for the checkpoint's bound,
 # as the host's park boundary; the host takes away-posture wakes itself and
 # returns only when main is needed (its header owns the output read here).
 # While an away record state/.afk-contract exists (never quiet mode's, whose
 # captain is present: bin/fm-afk-contract.sh mode), the bound is
-# raised to FM_CODEX_WATCH_CHECKPOINT_AWAY (default 3600) when that is longer,
+# raised to the detected primary's away bound (default 3600) when that is longer,
 # so a parked main is not woken every few minutes; an engine turn that starts
 # before the bound may finish after it. A close that carries a wake or a
 # "supervision-host:" line other than the park boundary passes through as a
@@ -23,7 +24,18 @@ FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
-SECONDS_ARG=${FM_CODEX_WATCH_CHECKPOINT:-180}
+CHECKPOINT_PRIMARY=${FM_WATCH_CHECKPOINT_PRIMARY:-$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)}
+case "$CHECKPOINT_PRIMARY" in
+  copilot)
+    SECONDS_ARG=${FM_COPILOT_WATCH_CHECKPOINT:-180}
+    CHECKPOINT_AWAY=${FM_COPILOT_WATCH_CHECKPOINT_AWAY:-}
+    ;;
+  *)
+    CHECKPOINT_PRIMARY=codex
+    SECONDS_ARG=${FM_CODEX_WATCH_CHECKPOINT:-180}
+    CHECKPOINT_AWAY=${FM_CODEX_WATCH_CHECKPOINT_AWAY:-}
+    ;;
+esac
 
 usage() {
   cat <<'EOF'
@@ -147,11 +159,11 @@ positive_or() {  # <value> <default>
 
 # shellcheck source=bin/fm-supervision-engine-lib.sh
 . "$SCRIPT_DIR/fm-supervision-engine-lib.sh"
-if fm_supervision_host_enabled "$CONFIG" codex; then
+if fm_supervision_host_enabled "$CONFIG" "$CHECKPOINT_PRIMARY"; then
   BOUND=$SECONDS_ARG
   if [ -f "$STATE/.afk-contract" ] \
     && [ "$(FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-afk-contract.sh" mode 2>/dev/null)" != quiet ]; then
-    AWAY_BOUND=$(positive_or "${FM_CODEX_WATCH_CHECKPOINT_AWAY:-}" 3600)
+    AWAY_BOUND=$(positive_or "$CHECKPOINT_AWAY" 3600)
     [ "$AWAY_BOUND" -le "$BOUND" ] 2>/dev/null || BOUND=$AWAY_BOUND
   fi
   # The host's park boundary stays below the 28800-second registration.
@@ -160,7 +172,7 @@ if fm_supervision_host_enabled "$CONFIG" codex; then
   set +e
   # The host ends its own park; the outer bound only catches a host that
   # outlived every one of its own bounds.
-  FM_SUPERVISION_HOST_PRIMARY=codex FM_SUPERVISION_HOST_PARK_SECONDS=$BOUND FM_SUPERVISION_HOST_PARK_LIMIT=$LIMIT \
+  FM_SUPERVISION_HOST_PRIMARY=$CHECKPOINT_PRIMARY FM_SUPERVISION_HOST_PARK_SECONDS=$BOUND FM_SUPERVISION_HOST_PARK_LIMIT=$LIMIT \
     run_bounded $((LIMIT + 120)) TERM 0 "$SCRIPT_DIR/fm-supervision-host.sh" park >"$OUT" 2>"$ERR"
   RC=$?
   set -e

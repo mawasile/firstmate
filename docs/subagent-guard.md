@@ -242,6 +242,9 @@ The bounded follow-up for each is identical to the Codex procedure above.
 On a host with the binary installed, ask the harness to enumerate its tools, then wire the matcher and re-run the live matrix below.
 `bin/fm-subagent-pretool-check.sh` needs no change for any of them: it already accepts Grok's stdin shape and the `--tool` CLI form OpenCode and Pi use, and it already emits the Grok stdout decision object by default.
 
+GitHub Copilot is wired separately through the scoped hook installed by `bin/fm-copilot-hook-install.sh`.
+Its `preToolUse` hook passes the tool name through `--tool` and returns Copilot's native deny object when the shared classifier exits 2.
+
 ## Live validation record, 2026-07-22
 
 Harness version:

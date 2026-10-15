@@ -1,0 +1,22 @@
+{
+  "name": "firstmate",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:24",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "init": true,
+  "shutdownAction": "none",
+  "containerEnv": {
+    "FIRSTMATE_NPM_REGISTRY": "${localEnv:FIRSTMATE_NPM_REGISTRY}",
+    "FIRSTMATE_PIP_INDEX_URL": "${localEnv:FIRSTMATE_PIP_INDEX_URL}",
+    "CHROME_DEVTOOLS_AXI_CHROME_ARGS": "--no-sandbox"
+  },
+  "remoteEnv": {
+    "PATH": "/home/node/.local/bin:${containerEnv:PATH}"
+  },
+  "mounts": [
+    "source=firstmate-gh-config,target=/home/node/.config/gh,type=volume",
+    "source=firstmate-copilot,target=/home/node/.copilot,type=volume"
+  ],
+  "onCreateCommand": "bash .devcontainer/setup.sh"
+}

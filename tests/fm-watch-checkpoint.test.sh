@@ -293,6 +293,18 @@ test_host_checkpoint_bounds_the_park_by_posture() {
   pass "checkpoint: an opted-in home runs the host for the checkpoint's bound, raised only while away"
 }
 
+test_copilot_checkpoint_pins_the_host_and_uses_its_away_bound() {
+  local home
+  home=$(make_host_home copilot-host-bound)
+  : >"$home/state/.afk-contract"
+  FM_WATCH_CHECKPOINT_PRIMARY=copilot FM_COPILOT_WATCH_CHECKPOINT_AWAY=700 \
+    run_host_checkpoint "$home" boundary --seconds 5
+  expect_code 124 "$STATUS" "a Copilot host park that reached its bound is a quiet checkpoint"
+  assert_contains "$(cat "$home/host-env")" $'primary=copilot\npark=700' \
+    "Copilot checkpoint did not pin the host or use its away bound"
+  pass "checkpoint: Copilot pins its host and owns a separate away bound"
+}
+
 test_host_checkpoint_passes_a_handback_and_reports_a_stand_down() {
   local home
   home=$(make_host_home host-handback)
@@ -353,6 +365,7 @@ test_signal_passes_through_and_exits_zero
 test_registered_check_uses_preserved_watcher_environment
 test_existing_singleton_watcher_is_not_success
 test_host_checkpoint_bounds_the_park_by_posture
+test_copilot_checkpoint_pins_the_host_and_uses_its_away_bound
 test_host_checkpoint_passes_a_handback_and_reports_a_stand_down
 test_host_checkpoint_needs_the_file_and_honors_off
 test_real_host_checkpoint_ends_quietly_at_its_bound

@@ -14,7 +14,7 @@ set -u
 # the fake ancestry the detection cases set up. Drop the ambient markers so the
 # asserted verdict does not depend on which harness launched the suite.
 unset CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT CURSOR_AGENT CURSOR_INVOKED_AS \
-  ATLASSIAN_AGENT_TYPE ROVODEV_CLI
+  ATLASSIAN_AGENT_TYPE ROVODEV_CLI COPILOT_CLI COPILOT_AGENT_SESSION_ID FM_COPILOT_SESSION_PID
 
 SPAWN="$ROOT/bin/fm-spawn.sh"
 TMP_ROOT=$(fm_test_tmproot fm-rovo-harness)

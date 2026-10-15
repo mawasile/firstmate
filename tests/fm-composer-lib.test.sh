@@ -189,6 +189,28 @@ test_matrix_claude_bare_nbsp_row() {
   pass "matrix: claude's ❯+NBSP row reads empty on every profile in both locales (#1988)"
 }
 
+test_matrix_copilot_logo_is_not_a_box() {
+  # Real idle GitHub Copilot CLI 1.0.97 (captured live through tmux): its logo
+  # row `╭─╮╭─╮` has a rounded top's two end corners, but it repeats corners
+  # inside the row and never closes. Read as a box top, it left every row below
+  # it - the `❯` composer between two solid rules included - inside an unclosed
+  # box, so the composer read unknown and every steer was refused.
+  local screen typed unclosed
+  screen=$'[Current]  Sessions   Issues   Pull requests   Gists\n\n  ╭─╮╭─╮\n  ╰─╯╰─╯  Copilot v1.0.97 uses AI.\n  █ ▘▝ █  Check for mistakes.\n   ▔▔▔▔\n\n /tmp/repo [⎇ master]                 Session: 0 AIC used\n────────────────────────\n❯\n────────────────────────\n ← open sidebar · Interactive · Allow All · / commands · ? help'
+  assert_screen "copilot idle with logo on tmux" empty "$CAPS_TMUX" "$screen" 9 probe-absent
+  assert_screen "copilot idle with logo on herdr" empty "$CAPS_STYLED" "$screen" '' probe-absent
+  assert_screen "copilot idle with logo on zellij" empty "$CAPS_STYLED_NOID" "$screen"
+  assert_screen "copilot idle with logo on cmux/orca" empty "$CAPS_PLAIN" "$screen"
+  typed=${screen/$'\n❯\n'/$'\n❯ unsubmitted draft\n'}
+  [ "$typed" != "$screen" ] || fail "copilot draft fixture did not change the composer row"
+  assert_screen "copilot draft with logo on tmux" pending "$CAPS_TMUX" "$typed" 9 probe-absent
+  # The narrowing is limited to repeated corners: a genuine box top that never
+  # closes above the cursor still leaves the composer unproven.
+  unclosed=$'  ╭──────────────╮\n  │ picker row   │\n────────────────────────\n❯\n────────────────────────'
+  assert_screen "an unclosed real box above the composer" unknown "$CAPS_TMUX" "$unclosed" 3 probe-absent
+  pass "matrix: Copilot's logo row is glyph art, not an unclosed box, in both locales"
+}
+
 test_matrix_claude_arrow_statusline_footer() {
   # Real claude 2.x on herdr (captured live 2026-09-20, herdr 0.8.0): the
   # composer is a bare `❯`+U+00A0 row between two solid rules, and the harness
@@ -1021,6 +1043,7 @@ test_idle_placeholder_is_empty
 test_idle_placeholder_case_mode_is_explicit
 test_real_text_is_pending
 test_matrix_claude_bare_nbsp_row
+test_matrix_copilot_logo_is_not_a_box
 test_matrix_claude_arrow_statusline_footer
 test_composer_footer_demotion_needs_a_proven_pair
 test_composer_footer_zone_is_shape_independent

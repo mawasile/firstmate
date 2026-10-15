@@ -7,10 +7,10 @@
 # state/.lock-session sidecar; bin/fm-claude-stop-autoarm.sh uses it to prove a
 # Stop hook fires inside the lock-owning primary session before it may arm or
 # rewake. Two signals decide ownership, either one sufficient: the recorded pid
-# is a member of this process's contiguous harness ancestry, or the trusted
-# Claude session id below matches the id recorded beside a live lock. Neither
-# signal ever fails open: no id, no sidecar, an untrusted id, or a different
-# recorded id leaves the ancestry verdict exactly as it was.
+# is a member of this process's contiguous harness ancestry, or a trusted
+# Claude or Copilot logical-session id below matches the id recorded beside a
+# live lock. Neither signal ever fails open: no id, no sidecar, an untrusted id,
+# or a different recorded id leaves the ancestry verdict exactly as it was.
 # This file is sourced by scripts and has no side effects on source.
 
 # Cursor process identity is NOT expressible as a command-name pattern and is
@@ -22,6 +22,8 @@ _FM_SESSION_LOCK_LIB_DIR=${BASH_SOURCE[0]%/*}
 [ "$_FM_SESSION_LOCK_LIB_DIR" != "${BASH_SOURCE[0]}" ] || _FM_SESSION_LOCK_LIB_DIR=.
 # shellcheck source=bin/fm-cursor-lib.sh
 . "${_FM_SESSION_LOCK_LIB_DIR:-/}/fm-cursor-lib.sh"
+# shellcheck source=bin/fm-copilot-lib.sh
+. "${_FM_SESSION_LOCK_LIB_DIR:-/}/fm-copilot-lib.sh"
 unset _FM_SESSION_LOCK_LIB_DIR
 
 # Known harness command names; extend when a new adapter is verified. omp is
@@ -68,9 +70,15 @@ fm_harness_path_name() {  # <path>
 #   3. a bare interpreter (node, python) running a harness script path.
 #   4. Cursor's own structural identity, owned by bin/fm-cursor-lib.sh.
 FM_HARNESS_IS_CLAUDE=0
+FM_HARNESS_IS_COPILOT=0
 fm_harness_process_matches() {  # <comm> <args>
   local comm=$1 args=$2 base argv0 name
   FM_HARNESS_IS_CLAUDE=0
+  FM_HARNESS_IS_COPILOT=0
+  if fm_copilot_process_matches "$comm" "$args"; then
+    FM_HARNESS_IS_COPILOT=1
+    return 0
+  fi
   base=$(basename -- "$comm")
   if printf '%s' "$base" | grep -qE "$FM_HARNESS_RE"; then
     case "$base" in *claude*) FM_HARNESS_IS_CLAUDE=1 ;; esac
@@ -124,7 +132,7 @@ fm_harness_ancestry_pids() {
     if fm_harness_process_matches "$comm" "$args"; then
       printf '%s\n' "$pid"
       printed=1
-      [ "$FM_HARNESS_IS_CLAUDE" -eq 1 ] || break
+      [ "$FM_HARNESS_IS_CLAUDE" -eq 1 ] || [ "$FM_HARNESS_IS_COPILOT" -eq 1 ] || break
       extending=1
     elif [ "$extending" -eq 1 ]; then
       break
@@ -198,7 +206,7 @@ fm_harness_pid_alive() {
 # Print the Claude session id this process may own with, or return 1. $1 is the
 # ancestry list an earlier walk already produced, so a caller that walked once
 # need not walk again.
-fm_session_lock_trusted_session_id() {  # [<ancestry-pids>]
+fm_session_lock_trusted_claude_session_id() {  # [<ancestry-pids>]
   local id=${CLAUDE_CODE_SESSION_ID:-} claude_pid=${CLAUDE_PID:-} pids=${1:-} pid comm args
   [ -n "$id" ] || return 1
   case "$id" in *$'\n'*|*$'\r'*) return 1 ;; esac
@@ -220,6 +228,44 @@ EOF
   return 1
 }
 
+_fm_session_lock_copilot_runtime_pid() {  # <ancestry-pids>
+  local pid comm args
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    comm=$(ps -o comm= -p "$pid" 2>/dev/null) || continue
+    args=$(ps -o args= -p "$pid" 2>/dev/null || true)
+    fm_copilot_process_matches "$comm" "$args" || continue
+    [ "$FM_COPILOT_PROCESS_KIND" = runtime ] || continue
+    printf '%s\n' "$pid"
+    return 0
+  done <<EOF
+$1
+EOF
+  return 1
+}
+
+fm_session_lock_trusted_copilot_session_id() {  # [<ancestry-pids>]
+  local id=${COPILOT_AGENT_SESSION_ID:-} pids=${1:-} runtime_pid session_pid
+  [ "${COPILOT_CLI:-}" = 1 ] || return 1
+  fm_copilot_session_id_valid "$id" || return 1
+  if [ -z "$pids" ]; then
+    pids=$(fm_harness_ancestry_pids) || return 1
+  fi
+  runtime_pid=$(_fm_session_lock_copilot_runtime_pid "$pids") || return 1
+  fm_copilot_session_active "$runtime_pid" "$id" || return 1
+  session_pid=${FM_COPILOT_SESSION_PID:-}
+  [ -z "$session_pid" ] || fm_copilot_session_pid_alive "$session_pid" || return 1
+  printf 'copilot:%s\n' "$id"
+}
+
+# Print the trusted logical-session id for supported harnesses, typed where a
+# shared runtime could otherwise collide with another harness's id namespace.
+fm_session_lock_trusted_session_id() {  # [<ancestry-pids>]
+  local pids=${1:-}
+  fm_session_lock_trusted_claude_session_id "$pids" && return 0
+  fm_session_lock_trusted_copilot_session_id "$pids"
+}
+
 # Print the session id recorded beside the lock in state dir $1, or return 1.
 # bin/fm-lock.sh is the only writer of state/.lock-session; a missing,
 # symlinked, unreadable, or empty sidecar, or one whose first line contains a
@@ -233,8 +279,8 @@ fm_session_lock_recorded_session_id() {  # <state>
   printf '%s\n' "$recorded"
 }
 
-# True when the lock in state dir $1 was recorded by this same Claude session:
-# the trusted id equals the id recorded beside the lock. No trusted id, no
+# True when the lock in state dir $1 was recorded by this same trusted logical
+# session: the trusted id equals the id recorded beside the lock. No trusted id, no
 # sidecar, or a different recorded id is false.
 fm_session_lock_same_session() {  # <state> [<ancestry-pids>]
   local state=$1 trusted recorded
@@ -244,26 +290,35 @@ fm_session_lock_same_session() {  # <state> [<ancestry-pids>]
 }
 
 # Print the pid bin/fm-lock.sh records on lock line 1 for this session. For a
-# Claude session with a trusted id that is CLAUDE_PID, the model-loop process:
+# Claude session with a trusted id that is CLAUDE_PID, use the model-loop process:
 # never the shared transient daemon and never a front-end that outlives the
 # session, so "recorded pid dead" keeps meaning "session gone" instead of
-# wedging a home behind a live daemon whose session died. A replaced background
+# wedging a home behind a live daemon whose session died. Copilot uses its
+# per-logical-session guardian instead of the shared runtime. A replaced background
 # helper leaves a dead pid that its own session's next hook reclaims, because
 # the sidecar still names that session. Every other session records the
 # outermost pid of its contiguous run, exactly as before.
 fm_session_lock_anchor_pid() {
   local pids
   pids=$(fm_harness_ancestry_pids) || return 1
-  if fm_session_lock_trusted_session_id "$pids" >/dev/null; then
+  if fm_session_lock_trusted_claude_session_id "$pids" >/dev/null; then
     printf '%s\n' "$CLAUDE_PID"
     return 0
   fi
+  if fm_session_lock_trusted_copilot_session_id "$pids" >/dev/null; then
+    fm_copilot_session_pid_alive "${FM_COPILOT_SESSION_PID:-}" || return 1
+    printf '%s\n' "$FM_COPILOT_SESSION_PID"
+    return 0
+  fi
+  # A shared Copilot runtime is structural harness evidence but cannot anchor a
+  # logical session without the tracked per-session extension.
+  _fm_session_lock_copilot_runtime_pid "$pids" >/dev/null && return 1
   _fm_harness_outermost_pid "$pids"
 }
 
 # True when state dir $1 holds a session lock that this process's session owns:
 # the recorded pid is ANY harness ancestor of the current process, or the lock
-# was recorded by this same trusted Claude session and its recorded pid is still
+# was recorded by this same trusted logical session and its recorded pid is still
 # a live harness. Membership is the honest ancestry test, because the lock owner
 # sits at an unknown depth in a contiguous Claude run - it is the outermost pid
 # when the hook fires inside the session's own nested worker chain, and an inner
@@ -290,7 +345,7 @@ EOF
 }
 
 # True when state dir $1 records a live verified harness outside this process's
-# contiguous harness ancestry that was not recorded by this same trusted Claude
+# contiguous harness ancestry that was not recorded by this same trusted logical
 # session. Sets FM_SESSION_LOCK_FOREIGN_OWNER_PID for a diagnostic caller.
 # Malformed, missing, dead, and ancestry-uncertain locks are not foreign-owner
 # evidence.

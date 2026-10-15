@@ -55,6 +55,11 @@ The shared no-mistakes gate lifecycle boundary is summarized in [architecture.md
 | `fm-kimi-turnend-hook.sh` | Surgically install or remove Kimi's guarded global crew turn-end hook                |
 | `fm-arm-pretool-check.sh` | Stable PreToolUse transport for the watcher-arm command policy (docs/arm-pretool-check.md) |
 | `fm-arm-command-policy.mjs` | Semantic owner of the watcher-arm PreToolUse policy (docs/arm-pretool-check.md)   |
+| `fm-copilot-hook-install.sh` | Install one scoped GitHub Copilot user-hook registration for this Firstmate home |
+| `fm-copilot-hook.sh` | Adapt Copilot session, pre-tool, and turn-end hook payloads to Firstmate owners |
+| `fm-copilot-session.mjs` | Maintain the per-logical-session guardian used to anchor a shared Copilot SDK runtime |
+| `fm-copilot-lib.sh` | Shared Copilot process, marker, and session-liveness identity |
+| `fm-copilot-worker-plugin.sh` | Write a Copilot CLI worker's private per-task lifecycle-hook plugin |
 | `fm-subagent-pretool-check.sh` | Primary-home delegation-shape PreToolUse guard (docs/subagent-guard.md) |
 | `fm-supervision-instructions.sh` | Render the session-start primary-harness supervision block or the one-line repair instruction |
 | `fm-home-seed.sh`        | Transactionally provision a local secondmate home and maintain `data/secondmates.md` |

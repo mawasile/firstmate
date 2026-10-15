@@ -35,6 +35,29 @@ OpenCode was checked in both headless and interactive modes.
 `client.session.promptAsync` accepted the nudge in both cases; the persistent TUI completed the generated turn, while `opencode run` exited before another turn.
 This is the current headless fail-open limit.
 
+### GitHub Copilot CLI and SDK delivery, 2026-10-14
+
+GitHub Copilot CLI 1.0.97 and the VS Code Copilot SDK runtime `@github/copilot-sdk-linux-x64` 1.0.19-unstable.38345923974.g3754b70 were verified on Linux x64 in the dev container.
+The CLI test installed one temporary scoped user hook, started an isolated committed fixture, and removed the hook and fixture afterward.
+The SDK test made no model call and used an isolated state directory.
+
+```sh
+FM_COPILOT_PRIMARY_LIVE_E2E=1 \
+  bash tests/fm-copilot-primary-live-e2e.test.sh
+FM_COPILOT_SDK_PRIMARY_LIVE_E2E=1 \
+  bash tests/fm-copilot-sdk-primary-live-e2e.test.sh
+```
+
+Observed output:
+
+```text
+ok - copilot primary live: scoped hook delivered startup context, ownership, and turn-end continuation
+ok - copilot SDK live: shared runtime retained session-specific lock ownership
+```
+
+The CLI model quoted the hidden session-start token, the hook recorder observed a valid logical session id and guardian pid, the first `agentStop` forced one continuation, that continuation ran `bin/fm-watch-checkpoint.sh`, and the second stop completed.
+The SDK process tree proved the separate shared-runtime boundary: a normal tool subprocess retained ownership through `COPILOT_AGENT_SESSION_ID`, while the lock itself named the `fm-copilot-ses` guardian rather than the shared `copilot-runtime`.
+
 Pi command shape:
 
 ```sh
@@ -257,13 +280,14 @@ tests/fm-crew-state.test.sh
 
 ## Turn-end guard
 
-The blocking and bounded-follow-up mechanisms were validated across seven harnesses on 2026-07-08 through 2026-09-21, with Claude's replacement Stop-owned path revalidated on 2026-09-21, Cursor's stop-hook park validated on 2026-08-13, and omp's blocking `session_stop` hook validated on 2026-09-05.
+The blocking and bounded-follow-up mechanisms were validated across eight harnesses on 2026-07-08 through 2026-10-14, with Claude's replacement Stop-owned path revalidated on 2026-09-21, Cursor's stop-hook park validated on 2026-08-13, omp's blocking `session_stop` hook validated on 2026-09-05, and Copilot's blocking `agentStop` hook validated on 2026-10-14.
 
 | Harness | Version verified | Mechanism | Observed result |
 | --- | --- | --- | --- |
 | Claude | 2.1.278 | Cooperative blocking `Stop` guard plus `asyncRewake` auto-arm | A fresh unsupervised session received the full session-start digest through the tracked `SessionStart` hook, reclaimed a stale dead-owner lock, completed two tokenless rewake cycles with no model arm command or guard continuation, and left a competing live owner unchanged. |
 | Codex | 0.142.1 | Blocking `Stop` hook | Hook process root stayed anchored to the trusted checkout and one continuation ran. |
 | OpenCode | 1.17.6 | Passive `session.idle` callback | Throwing could not block, while `promptAsync` scheduled one TUI follow-up; headless remained fail-open. |
+| GitHub Copilot | CLI 1.0.97 | Blocking `agentStop` hook returning `{ decision: "block", reason }` | The first stop forced one continuation, the continuation ran the foreground checkpoint, and the next stop completed under the `stop_hook_active` bound. |
 | Pi | 0.80.5 | Passive `agent_settled` callback | Exactly one guard follow-up ran for an unhealthy cycle, with no recursion across tool turns. |
 | omp | 18.1.11 | Blocking `session_stop` hook returning `{ continue: true, additionalContext }` | In the isolated rpc lab (2026-09-05), the successor watcher was frozen with `SIGSTOP` until its beacon passed the lab `FM_GUARD_GRACE` of 20s while its arm child stayed attached (a killed watcher closes its arm child and the extension re-arms before the guard can fire); the next turn end raised the guard, the guard spy recorded `rc=2` followed by a stop carrying `stop_hook_active: true`, omp compelled a continuation carrying the `turn-end-guard` operational text, the `fm_watch_arm_omp` invocation count then rose to at least two, and a live watcher held the home lock after the thaw; the flagged stop was allowed, so exactly one continuation ran. `session_stop` never fired for an interrupted turn. |
 | Grok | 0.2.112 native and 0.2.73 pre-native | Running-payload adaptive `Stop` | Native false-to-true continuation stayed in one process with two model turns and zero resume launches; the field-absent pre-native process launched exactly one guarded resume. |

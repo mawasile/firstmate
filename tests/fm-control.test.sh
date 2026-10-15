@@ -35,7 +35,7 @@ mkdir -p "$TMP_ROOT"
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd)
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
-VERIFIED_HARNESSES="claude codex opencode pi pi-signed grok kimi cursor muse omp devin"
+VERIFIED_HARNESSES="claude codex opencode pi pi-signed grok kimi cursor muse omp devin copilot"
 
 # The expectation table, written out independently of the implementation so a
 # silent change to either side shows up here. The fourth field is the composer
@@ -50,6 +50,7 @@ verified_adapter_contract() {  # <harness> -> exit command, interrupt key, repea
     pi-signed) printf '/quit\tEscape\t1\t\n' ;;
     omp) printf '/quit\tEscape\t1\t\n' ;;
     devin) printf '/quit\tEscape\t2\t\n' ;;
+    copilot) printf '/exit\tEscape\t2\t\n' ;;
     grok) printf '/exit\tC-c\t1\t\n' ;;
     kimi) printf '/exit\tEscape\t1\t\n' ;;
     cursor) printf '/exit\tEscape\t1\t\n' ;;
@@ -77,6 +78,19 @@ verified_adapter_contract() {  # <harness> -> exit command, interrupt key, repea
 #            last Escape was a moment ago) ->picker, and picker->idle unless
 #            FM_FAKE_DEVIN_PICKER_STUCK is set. Real sleeps apply while it
 #            exists, so key-times carry the true gap between presses.
+#   copilot  optional GitHub Copilot CLI screen model with the rows Copilot CLI
+#            1.0.97 draws: `starting` (a turn's `esc edit prompt` phase before
+#            output streams), `starting-armed`, `restored` (a pair pressed in
+#            that phase cancels and puts the prompt back in the composer),
+#            `running`, `armed`, `cancelled`, `idle`, `primed`
+#            (the `esc again to rewind` hint one idle Escape renders), or
+#            `picker` (its rewind picker). Escape moves starting->starting-armed,
+#            starting-armed->restored, running->armed,
+#            armed->cancelled, idle or cancelled->primed, primed->picker, and
+#            picker->idle unless FM_FAKE_COPILOT_PICKER_STUCK is set. A
+#            `starting` screen becomes `running` after the number of screen
+#            reads held in copilot-start-reads. Real
+#            sleeps apply while it exists, as for devin.
 # Two transitions make it a lifecycle model rather than a recorder: a literal
 # that is the harness's exit command flips `command` to a shell (the agent
 # stopped), and a literal carrying a launch brief flips it to the value in
@@ -113,6 +127,45 @@ devin_screen() {  # <running|armed|cancelled|idle|picker>
   esac
   printf '──── (bypass permissions on) ─\n%s\n────\nSWE-2 Medium\n' "$composer"
 }
+# The rows Copilot CLI 1.0.97 renders for each modelled screen (live capture).
+copilot_screen() {  # <starting|starting-armed|restored|running|armed|cancelled|idle|primed|picker>
+  local footer=' ← open sidebar · Interactive · Allow All · / commands · ? help · tab next tab' composer='❯'
+  case "$1" in
+    starting|starting-armed)
+      printf ' ❯ Run the shell command: sleep 30\n'
+      if [ "$1" = starting-armed ]; then
+        footer=' ○ Working esc again to edit prompt'
+      else
+        footer=' ● Working esc edit prompt'
+      fi
+      ;;
+    restored)
+      printf ' ✗ Shell Sleep then echo marker Operation aborted by user\n'
+      composer='❯ Run the shell command: sleep 30'
+      footer=' Interactive · Allow All · @ files · # issues'
+      ;;
+    running|armed)
+      printf ' ❯ Run the shell command: sleep 30\n $ Shell Sleep then echo marker\n   sleep 30\n'
+      if [ "$1" = armed ]; then
+        footer=' ◉ Working · 108 B esc again to interrupt'
+      else
+        footer=' ◎ Working · 108 B esc interrupt'
+      fi
+      ;;
+    cancelled) printf ' ✗ Shell Sleep then echo marker Operation aborted by user\n ● Operation cancelled by user\n' ;;
+    idle) printf ' ● done\n' ;;
+    primed) printf ' ● done\n'; footer=' esc again to rewind' ;;
+    picker)
+      printf ' ● done\n╭──────────────────────────────────────────╮\n'
+      printf '│ Rewind to a previous point               │\n'
+      printf '│ ❯  1. Run the shell command (just now)   │\n'
+      printf '│ ↑↓ Navigate · Enter Select · Esc Cancel  │\n'
+      printf '╰──────────────────────────────────────────╯\n'
+      return 0
+      ;;
+  esac
+  printf '────────────────────────\n%s\n────────────────────────\n%s\n' "$composer" "$footer"
+}
 case "${1:-}" in
   send-keys)
     shift
@@ -145,6 +198,17 @@ case "${1:-}" in
           picker) [ -n "${FM_FAKE_DEVIN_PICKER_STUCK:-}" ] || printf idle > "$D/devin" ;;
         esac
       fi
+      if [ "$payload" = Escape ] && [ -f "$D/copilot" ]; then
+        case "$(cat "$D/copilot")" in
+          starting) printf starting-armed > "$D/copilot" ;;
+          starting-armed) printf restored > "$D/copilot" ;;
+          running) printf armed > "$D/copilot" ;;
+          armed) printf cancelled > "$D/copilot" ;;
+          idle|cancelled) printf primed > "$D/copilot" ;;
+          primed) printf picker > "$D/copilot" ;;
+          picker) [ -n "${FM_FAKE_COPILOT_PICKER_STUCK:-}" ] || printf idle > "$D/copilot" ;;
+        esac
+      fi
       if [ -n "${FM_FAKE_INTERRUPT_STOPS_AGENT:-}" ] \
          && { [ "$payload" = Escape ] || [ "$payload" = C-c ]; }; then
         printf 'zsh' > "$D/command"
@@ -165,6 +229,8 @@ case "${1:-}" in
           # A modelled Devin screen parks the cursor on its composer row.
           if [ -f "$D/devin" ]; then
             devin_screen "$(cat "$D/devin")" | awk '/^❭ /{ print NR - 1; exit }'
+          elif [ -f "$D/copilot" ]; then
+            copilot_screen "$(cat "$D/copilot")" | awk '/^❯( |$)/{ print NR - 1; exit }'
           else
             printf '1\n'
           fi
@@ -187,7 +253,11 @@ case "${1:-}" in
         exit 0
       fi
     fi
-    if [ -f "$D/devin" ]; then devin_screen "$(cat "$D/devin")"; elif [ -f "$D/pane" ]; then cat "$D/pane"; else printf '╭────╮\n│    │\n╰────╯\n'; fi
+    if [ -f "$D/copilot" ] && [ "$(cat "$D/copilot")" = starting ] && [ -f "$D/copilot-start-reads" ]; then
+      reads=$(cat "$D/copilot-start-reads")
+      if [ "$reads" -le 0 ]; then printf running > "$D/copilot"; else printf '%s' "$((reads - 1))" > "$D/copilot-start-reads"; fi
+    fi
+    if [ -f "$D/devin" ]; then devin_screen "$(cat "$D/devin")"; elif [ -f "$D/copilot" ]; then copilot_screen "$(cat "$D/copilot")"; elif [ -f "$D/pane" ]; then cat "$D/pane"; else printf '╭────╮\n│    │\n╰────╯\n'; fi
     exit 0 ;;
   list-windows)
     if [ -f "$D/windows" ]; then cat "$D/windows"; fi
@@ -198,7 +268,7 @@ SH
   chmod +x "$fb/tmux"
   cat > "$fb/sleep" <<'SH'
 #!/usr/bin/env bash
-if [ -f "$FM_FAKE_DIR/devin" ]; then exec /bin/sleep "$@"; fi
+if [ -f "$FM_FAKE_DIR/devin" ] || [ -f "$FM_FAKE_DIR/copilot" ]; then exec /bin/sleep "$@"; fi
 if [ -n "${FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK:-}" ] \
    && [ -e "$FM_FAKE_DIR/muse-ack-pending" ]; then
   rm -f "$FM_FAKE_DIR/muse-ack-pending"
@@ -261,6 +331,8 @@ run_control() {
     FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK="${FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK:-}" \
     FM_FAKE_INTERRUPT_STOPS_AGENT="${FM_FAKE_INTERRUPT_STOPS_AGENT:-}" \
     FM_FAKE_DEVIN_PICKER_STUCK="${FM_FAKE_DEVIN_PICKER_STUCK:-}" \
+    FM_FAKE_COPILOT_PICKER_STUCK="${FM_FAKE_COPILOT_PICKER_STUCK:-}" \
+    FM_CONTROL_DEFER_WAIT="${FM_CONTROL_DEFER_WAIT:-20}" \
     "$CONTROL" "$@" 2>&1
 }
 
@@ -305,8 +377,9 @@ test_interrupt_sends_each_harness_verified_key() {
   for harness in $VERIFIED_HARNESSES; do
     dir=$(new_case "int-$harness")
     add_task "$dir" t1 "$harness"
-    # Devin sends its second press only onto a running turn.
+    # Devin and Copilot send their second press only onto a running turn.
     [ "$harness" != devin ] || printf running > "$dir/fake/devin"
+    [ "$harness" != copilot ] || printf running > "$dir/fake/copilot"
     if [ "$harness" = cursor ]; then
       alive_as "$dir" cursor-agent
     else
@@ -417,6 +490,104 @@ test_devin_stuck_picker_refuses_and_exit_types_nothing() {
   pass "fm-control Devin: an open revert picker refuses every typed command"
 }
 
+copilot_as() {  # <case-dir> <screen>
+  alive_as "$1" copilot
+  printf '%s' "$2" > "$1/fake/copilot"
+}
+
+test_copilot_interrupt_invalidates_busy() {
+  local dir out gap
+  dir=$(new_case copilot-busy)
+  add_task "$dir" t1 copilot
+  copilot_as "$dir" running
+  "$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1 >/dev/null
+  out=$(run_control "$dir" t1 interrupt) || fail "Copilot interrupt failed: $out"
+  assert_contains "$out" 'cancel=unconfirmed' 'Copilot cancellation must not claim semantic confirmation'
+  assert_grep 'state=unknown source=fm-interrupt' "$dir/home/state/t1.busy-state" 'cancelled Copilot turn stayed busy'
+  [ "$(cat "$dir/fake/copilot")" = cancelled ] || fail "the second press should have cancelled the armed turn"
+  gap=$(first_key_gap "$dir")
+  awk -v g="$gap" 'BEGIN{exit !(g >= 0.2 && g < 0.6)}' \
+    || fail "Copilot's second Escape came ${gap}s after the first; it must land inside the ~0.6s armed window"
+  pass "fm-control Copilot interrupt: second press inside the armed window, then busy invalidated without fabricating idle"
+}
+
+# An idle Copilot opens its rewind picker on a fast Escape pair. Its single
+# idle Escape renders `esc again to rewind`, which is not the running-turn
+# proof, so the interrupt must stop at one press and keep the busy record.
+test_copilot_idle_interrupt_sends_one_press() {
+  local dir out before
+  dir=$(new_case copilot-idle)
+  add_task "$dir" t1 copilot
+  copilot_as "$dir" idle
+  "$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1 >/dev/null
+  before=$(cat "$dir/home/state/t1.busy-state")
+  out=$(run_control "$dir" t1 interrupt) || fail "an idle Copilot interrupt should still deliver: $out"
+  [ "$(keys_sent "$dir")" = Escape ] \
+    || fail "an idle Copilot must receive exactly one Escape, never the pair that opens its rewind picker, got: $(keys_sent "$dir")"
+  assert_contains "$out" 'cancel=not-running' 'an unarmed Copilot interrupt must say no running turn was cancelled'
+  [ "$(cat "$dir/home/state/t1.busy-state")" = "$before" ] \
+    || fail "an interrupt that cancelled nothing must not rewrite Copilot's busy record"
+  [ "$(cat "$dir/fake/copilot")" = primed ] || fail "the idle Copilot screen should only show the rewind hint: $(cat "$dir/fake/copilot")"
+  pass "fm-control Copilot interrupt: an idle agent gets one Escape and reports not-running"
+}
+
+test_copilot_interrupt_dismisses_rewind_picker() {
+  local dir out
+  dir=$(new_case copilot-picker)
+  add_task "$dir" t1 copilot
+  copilot_as "$dir" primed
+  out=$(run_control "$dir" t1 interrupt) || fail "a Copilot interrupt that opened the picker should close it: $out"
+  assert_contains "$out" 'cancel=not-running revert-picker=dismissed' 'the dismissed picker should be reported'
+  [ "$(cat "$dir/fake/copilot")" = idle ] || fail "the rewind picker was left open: $(cat "$dir/fake/copilot")"
+  [ -z "$(literals "$dir")" ] || fail "nothing may be typed into the rewind picker, got: $(literals "$dir")"
+  ! grep -qx Enter "$dir/fake/keys" || fail "Enter rewinds in the picker and must never be sent"
+  pass "fm-control Copilot interrupt: a rewind picker a press opened is closed with Escape, never Enter"
+}
+
+test_copilot_open_picker_refuses_exit() {
+  local dir out rc
+  dir=$(new_case copilot-exit-picker)
+  add_task "$dir" t1 copilot
+  copilot_as "$dir" picker
+  out=$(FM_FAKE_COPILOT_PICKER_STUCK=1 run_control "$dir" t1 exit); rc=$?
+  expect_code 1 "$rc" "exit must refuse while the rewind picker is open"$'\n'"$out"
+  [ -z "$(literals "$dir")" ] || fail "exit typed into the rewind picker: $(literals "$dir")"
+  ! grep -qx Enter "$dir/fake/keys" || fail "exit pressed Enter in the rewind picker"
+  pass "fm-control Copilot: an open rewind picker refuses the typed exit command"
+}
+
+# A Copilot turn opens in its `esc edit prompt` phase, where an Escape pair
+# cancels AND restores the prompt into the composer. The interrupt must wait for
+# the streaming phase before its first press, then cancel normally.
+test_copilot_interrupt_waits_out_edit_prompt_phase() {
+  local dir out
+  dir=$(new_case copilot-starting)
+  add_task "$dir" t1 copilot
+  copilot_as "$dir" starting
+  printf '3' > "$dir/fake/copilot-start-reads"
+  "$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1 >/dev/null
+  out=$(run_control "$dir" t1 interrupt) || fail "Copilot interrupt in the edit-prompt phase failed: $out"
+  [ "$(cat "$dir/fake/copilot")" = cancelled ] \
+    || fail "the interrupt should cancel once the turn streams, not restore the prompt: $(cat "$dir/fake/copilot")"
+  [ "$(keys_sent "$dir" | tr '\n' ' ')" = 'Escape Escape ' ] || fail "expected one armed pair, got: $(keys_sent "$dir")"
+  assert_contains "$out" 'cancel=unconfirmed' 'the waited interrupt should report the armed cancellation'
+  pass "fm-control Copilot interrupt: waits out the edit-prompt phase, then cancels without restoring the prompt"
+}
+
+test_copilot_interrupt_refuses_a_stuck_edit_prompt_phase() {
+  local dir out rc
+  dir=$(new_case copilot-stuck-start)
+  add_task "$dir" t1 copilot
+  copilot_as "$dir" starting
+  printf '100000' > "$dir/fake/copilot-start-reads"
+  out=$(FM_CONTROL_DEFER_WAIT=0.3 run_control "$dir" t1 interrupt); rc=$?
+  expect_code 1 "$rc" "an interrupt must refuse while the turn never leaves its edit-prompt phase"$'\n'"$out"
+  assert_contains "$out" 'not-yet-interruptible phase' 'the refusal should name the phase'
+  [ -z "$(keys_sent "$dir")" ] || fail "no key may be pressed during the edit-prompt phase, got: $(keys_sent "$dir")"
+  [ "$(cat "$dir/fake/copilot")" = starting ] || fail "the edit-prompt screen changed: $(cat "$dir/fake/copilot")"
+  pass "fm-control Copilot interrupt: a turn stuck before streaming gets no key and a named refusal"
+}
+
 # A recorded harness can carry a raw launch command's basename, so the tables
 # are reached through one prefix rule rather than an exact string match.
 test_harness_family_resolution() {
@@ -424,7 +595,7 @@ test_harness_family_resolution() {
   for pair in claude:claude claude-latest:claude codex:codex codex-cli:codex \
       opencode:opencode grok:grok grok-2:grok kimi:kimi cursor:cursor \
       cursor-agent:cursor muse:muse muse-bin-0.1.0:muse pi:pi \
-      pi-signed:pi-signed omp:omp devin:devin; do
+      pi-signed:pi-signed omp:omp devin:devin copilot:copilot; do
     recorded=${pair%%:*}
     want=${pair#*:}
     got=$(fm_control_harness_family "$recorded") \
@@ -1179,6 +1350,12 @@ test_devin_idle_interrupt_sends_one_press
 test_devin_exit_after_turn_ended_types_quit_once
 test_devin_interrupt_dismisses_revert_picker
 test_devin_stuck_picker_refuses_and_exit_types_nothing
+test_copilot_interrupt_invalidates_busy
+test_copilot_idle_interrupt_sends_one_press
+test_copilot_interrupt_dismisses_rewind_picker
+test_copilot_open_picker_refuses_exit
+test_copilot_interrupt_waits_out_edit_prompt_phase
+test_copilot_interrupt_refuses_a_stuck_edit_prompt_phase
 test_opencode_interrupts_twice_and_others_once
 test_unverified_harness_is_refused
 test_harness_family_resolution
