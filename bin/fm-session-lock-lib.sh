@@ -24,6 +24,7 @@ _FM_SESSION_LOCK_LIB_DIR=${BASH_SOURCE[0]%/*}
 . "${_FM_SESSION_LOCK_LIB_DIR:-/}/fm-cursor-lib.sh"
 # shellcheck source=bin/fm-copilot-lib.sh
 . "${_FM_SESSION_LOCK_LIB_DIR:-/}/fm-copilot-lib.sh"
+_FM_SESSION_LOCK_ROOT="${_FM_SESSION_LOCK_LIB_DIR:-.}/.."
 unset _FM_SESSION_LOCK_LIB_DIR
 
 # Known harness command names; extend when a new adapter is verified. omp is
@@ -244,6 +245,36 @@ EOF
   return 1
 }
 
+# Print this logical session's guardian pid, or nothing. The session-start hook
+# exports FM_COPILOT_SESSION_PID only to its own process, so an ordinary tool
+# shell never inherits it; it falls back to the guardian's own owner record,
+# accepted only when it names this session and this runtime and its pid is a
+# live guardian.
+_fm_session_lock_copilot_guardian_pid() {  # <session-id> <runtime-pid>
+  local id=$1 runtime_pid=$2 state record line key value
+  local rec_session='' rec_pid='' rec_runtime='' rec_version=''
+  if [ -n "${FM_COPILOT_SESSION_PID:-}" ]; then
+    printf '%s\n' "$FM_COPILOT_SESSION_PID"
+    return 0
+  fi
+  state=${FM_STATE_OVERRIDE:-${FM_HOME:-$_FM_SESSION_LOCK_ROOT}/state}
+  record="$state/copilot-sessions/$id.owner"
+  [ -f "$record" ] && [ ! -L "$record" ] || return 1
+  while IFS= read -r line; do
+    key=${line%%=*}
+    value=${line#*=}
+    case "$key" in
+      version) rec_version=$value ;;
+      session) rec_session=$value ;;
+      pid) rec_pid=$value ;;
+      runtime) rec_runtime=$value ;;
+    esac
+  done <"$record"
+  [ "$rec_version" = 1 ] && [ "$rec_session" = "$id" ] && [ "$rec_runtime" = "$runtime_pid" ] || return 1
+  fm_copilot_session_pid_alive "$rec_pid" || return 1
+  printf '%s\n' "$rec_pid"
+}
+
 fm_session_lock_trusted_copilot_session_id() {  # [<ancestry-pids>]
   local id=${COPILOT_AGENT_SESSION_ID:-} pids=${1:-} runtime_pid session_pid
   [ "${COPILOT_CLI:-}" = 1 ] || return 1
@@ -253,7 +284,7 @@ fm_session_lock_trusted_copilot_session_id() {  # [<ancestry-pids>]
   fi
   runtime_pid=$(_fm_session_lock_copilot_runtime_pid "$pids") || return 1
   fm_copilot_session_active "$runtime_pid" "$id" || return 1
-  session_pid=${FM_COPILOT_SESSION_PID:-}
+  session_pid=$(_fm_session_lock_copilot_guardian_pid "$id" "$runtime_pid" 2>/dev/null || true)
   [ -z "$session_pid" ] || fm_copilot_session_pid_alive "$session_pid" || return 1
   printf 'copilot:%s\n' "$id"
 }
@@ -306,8 +337,11 @@ fm_session_lock_anchor_pid() {
     return 0
   fi
   if fm_session_lock_trusted_copilot_session_id "$pids" >/dev/null; then
-    fm_copilot_session_pid_alive "${FM_COPILOT_SESSION_PID:-}" || return 1
-    printf '%s\n' "$FM_COPILOT_SESSION_PID"
+    local session_pid
+    session_pid=$(_fm_session_lock_copilot_guardian_pid "$COPILOT_AGENT_SESSION_ID" \
+      "$(_fm_session_lock_copilot_runtime_pid "$pids")") || return 1
+    fm_copilot_session_pid_alive "$session_pid" || return 1
+    printf '%s\n' "$session_pid"
     return 0
   fi
   # A shared Copilot runtime is structural harness evidence but cannot anchor a

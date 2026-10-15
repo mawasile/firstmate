@@ -126,6 +126,20 @@ COPILOT_CLI=1 COPILOT_AGENT_SESSION_ID=session-one \
     exit 1
   }
 
+mkdir -p "$STATE/copilot-sessions"
+printf 'version=1\nsession=session-one\npid=%s\nruntime=%s\n' "$guardian_pid" "$runtime" \
+  >"$STATE/copilot-sessions/session-one.owner"
+anchored=$(COPILOT_CLI=1 COPILOT_AGENT_SESSION_ID=session-one FM_STATE_OVERRIDE="$STATE" \
+  bash -c '. "$1"; fm_session_lock_anchor_pid' _ "$LOCK_LIB") || {
+  echo "a tool shell without FM_COPILOT_SESSION_PID could not anchor through the owner record" >&2
+  exit 1
+}
+[ "$anchored" = "$guardian_pid" ] || {
+  echo "owner-record anchor '$anchored', expected guardian pid '$guardian_pid'" >&2
+  exit 1
+}
+rm -f "$STATE/copilot-sessions/session-one.owner"
+
 if COPILOT_CLI=1 COPILOT_AGENT_SESSION_ID=session-two \
   bash -c '. "$1"; fm_session_lock_owned_by_self "$2"' _ "$LOCK_LIB" "$STATE"; then
   echo "a different logical session owned the first session's lock" >&2
