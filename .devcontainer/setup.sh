@@ -27,6 +27,7 @@ sudo ln -sfn /usr/bin/chromium /opt/google/chrome/chrome
 
 bash bin/fm-install-shellcheck.sh "$HOME/.local/bin"
 bash bin/fm-install-actionlint.sh "$HOME/.local/bin"
+bash bin/fm-install-herdr.sh "$HOME/.local/bin"
 
 if [ -n "$NPM_REGISTRY" ]; then
   npm config set registry "$NPM_REGISTRY"
@@ -61,7 +62,7 @@ if [ -n "$missing" ]; then
   printf '%s\n' "$missing" >&2
   exit 1
 fi
-for tool in shellcheck actionlint chrome-devtools-mcp copilot; do
+for tool in shellcheck actionlint herdr chrome-devtools-mcp copilot; do
   command -v "$tool" >/dev/null || { echo "setup: $tool is missing" >&2; exit 1; }
 done
 browser_dom=$(timeout 60 chromium --headless --no-sandbox --disable-gpu \
