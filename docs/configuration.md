@@ -1039,14 +1039,15 @@ The address selects the existing shared server; it does not authorize starting o
 
 ### Dev-container browser access
 
-The [dev-container configuration](../.devcontainer/devcontainer.json) forwards Lavish's default port, 4387, to the host computer through VS Code and keeps Lavish bound to the container's loopback address.
-VS Code also detects other development-service ports and notifies you when it forwards them, with host-side listeners restricted to localhost.
-These settings do not publish Docker ports or make services accessible to other computers.
+The [dev-container configuration](../.devcontainer/devcontainer.json) publishes Lavish's default port, 4387, through Docker on the host's loopback address, so no editor attach or port forwarding is needed.
+The [container setup](../.devcontainer/setup.sh) adds a shell-profile line that binds Lavish to the container's own address at shell start, because Docker delivers published traffic there and Lavish refuses wildcard addresses.
+`LAVISH_AXI_LINK_HOST=localhost` makes `lavish-axi` print `localhost` links.
+The server still listens on loopback too, and the published port is not reachable from other computers.
+Lavish is unauthenticated and can serve local files, so listening beyond loopback is acceptable only because Docker publishes it to the host's loopback alone.
 
-After changing this configuration, run **Dev Containers: Rebuild Container**.
-Start or resume the review with `lavish-axi <html-file>`, then use VS Code's **Ports** view to open the forwarded address in your host browser, preserving the review URL's `/session/...` path.
-If VS Code assigns a different local port because 4387 is occupied, use the local address shown in **Ports** instead of the container's original address.
-For a custom `LAVISH_AXI_PORT` or another service that VS Code does not detect, add its port through **Ports: Forward a Port** or the configuration's `forwardPorts` list.
+After changing this configuration, run **Dev Containers: Rebuild Container**, or recreate the container with your Docker tooling, then start or resume the review with `lavish-axi <html-file>` and open the printed `http://localhost:4387/session/...` link in your host browser.
+If another program on the host already uses port 4387, the container fails to start; free the port or change both the `appPort` mapping and `LAVISH_AXI_PORT`.
+A VS Code attach no longer needs to forward the port; remove any manual forward of 4387 so the two do not compete.
 
 The [container setup](../.devcontainer/setup.sh) also installs Pi and Herdr's global Pi extension, which Pi loads automatically on startup.
 Restart an existing Pi session after installing the extension so it can report its activity to Herdr.

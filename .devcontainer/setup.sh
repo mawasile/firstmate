@@ -7,6 +7,9 @@
 # Docker's default seccomp profile blocks Chromium's namespace sandbox, so
 # devcontainer.json disables that sandbox only for browser automation.
 # Herdr's Pi integration installs a global extension that Pi loads on startup.
+# Docker delivers a published port to the container's own address, so every new
+# shell binds Lavish there; Lavish refuses wildcard addresses, and the address
+# changes per container, so it is derived at shell start rather than fixed.
 # A Windows clone checks tracked symlinks out as plain files, so setup restores
 # any still matching git's copy once the mount proves it can hold real links.
 set -euo pipefail
@@ -108,3 +111,16 @@ case "$browser_dom" in
   *firstmate-browser-ready*) ;;
   *) echo "setup: Chromium could not render a page" >&2; exit 1 ;;
 esac
+
+lavish_marker='# firstmate: bind Lavish to the container address'
+for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+  [ "$rc" = "$HOME/.bashrc" ] || [ -f "$rc" ] || continue
+  grep -Fq "$lavish_marker" "$rc" 2>/dev/null && continue
+  cat >> "$rc" <<'RC'
+
+# firstmate: bind Lavish to the container address
+lavish_ip=$(hostname -i 2>/dev/null | awk '{print $1}')
+[ -z "$lavish_ip" ] || export LAVISH_AXI_HOST="$lavish_ip"
+unset lavish_ip
+RC
+done
