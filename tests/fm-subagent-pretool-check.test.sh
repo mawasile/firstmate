@@ -134,6 +134,21 @@ test_plan_only_exclusion_is_exact_name() {
   pass "the plan-only exclusion releases exactly two names and nothing that merely contains them"
 }
 
+test_guard_allows_session_completion_signal() {
+  # Copilot's task_complete only signals that this session is finished; it
+  # creates no runnable work, so a primary must be able to call it. Its
+  # delegation-shaped neighbours must stay denied, proving the allowance is
+  # exact-name rather than a widened task stem.
+  local tool
+  for tool in task_complete TaskComplete; do
+    expect_allow "session completion signal" "$tool"
+  done
+  for tool in task createAndRunTask runTask task_complete_agent; do
+    expect_deny "completion-signal near miss" "$tool"
+  done
+  pass "the guard allows the session completion signal and nothing that merely resembles it"
+}
+
 test_guard_never_classifies_mcp_tools() {
   # An MCP server names its own tools; a task or agent noun there is common and
   # has nothing to do with fleet dispatch.
@@ -281,6 +296,7 @@ test_guard_denies_hypothetical_future_tools
 test_guard_allows_ordinary_and_observe_only_tools
 test_guard_allows_session_local_todo_tools
 test_plan_only_exclusion_is_exact_name
+test_guard_allows_session_completion_signal
 test_guard_never_classifies_mcp_tools
 test_deny_message_defers_to_intake_classification
 test_escape_hatch_allows_deliberate_use

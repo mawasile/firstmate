@@ -78,6 +78,14 @@ OBSERVE_ONLY_TOOLS='taskoutput taskstop taskget tasklist cronlist bashoutput kil
 # widen by accident.
 PLAN_ONLY_TOOLS='taskcreate taskupdate'
 
+# Exact lowercase tool names that match a stem above but only SIGNAL that the
+# calling session itself is finished, such as Copilot's `task_complete`. They
+# create nothing, write nothing, and observe or stop no other work, so neither
+# list above describes them truthfully; denying them leaves the primary unable
+# to close out its own session. Exact-name like the lists above, so `task`,
+# `createAndRunTask`, and `runTask` stay denied.
+SESSION_SIGNAL_TOOLS='taskcomplete'
+
 TOOL=""
 TOOL_SET=0
 CLAUDE_MODE=0
@@ -152,7 +160,7 @@ case "$TOOL" in
   mcp__*) exit 0 ;;
 esac
 
-for allowed in $OBSERVE_ONLY_TOOLS $PLAN_ONLY_TOOLS; do
+for allowed in $OBSERVE_ONLY_TOOLS $PLAN_ONLY_TOOLS $SESSION_SIGNAL_TOOLS; do
   [ "$NORMALIZED" != "$allowed" ] || exit 0
 done
 
