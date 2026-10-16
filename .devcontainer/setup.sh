@@ -7,6 +7,8 @@
 # Docker's default seccomp profile blocks Chromium's namespace sandbox, so
 # devcontainer.json disables that sandbox only for browser automation.
 # Herdr's Pi integration installs a global extension that Pi loads on startup.
+# PI_CODING_AGENT_DIR may point into this checkout so Pi auth and sessions
+# survive devcontainer rebuilds on the mounted workspace.
 # Docker delivers a published port to the container's own address, so every new
 # shell binds Lavish there; Lavish refuses wildcard addresses, and the address
 # changes per container, so it is derived at shell start rather than fixed.
@@ -18,6 +20,7 @@ set -euo pipefail
 . bin/fm-env-lib.sh
 NPM_REGISTRY=${FIRSTMATE_NPM_REGISTRY:-$(fmx_env_get FIRSTMATE_NPM_REGISTRY .env)}
 PIP_INDEX_URL=${FIRSTMATE_PIP_INDEX_URL:-$(fmx_env_get FIRSTMATE_PIP_INDEX_URL .env)}
+PI_AGENT_DIR=${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}
 
 mkdir -p "$HOME/.local/bin"
 sudo chown -R "$(id -un):$(id -gn)" "$HOME/.config" "$HOME/.copilot" "$HOME/.local"
@@ -25,7 +28,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 sudo apt-get update
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-  tmux jq python3 python3-pip chromium fonts-liberation
+  tmux jq python3 python3-pip chromium fonts-liberation smbclient
 
 # chrome-devtools-mcp finds the stable channel only at Google's install path.
 sudo mkdir -p /opt/google/chrome
@@ -102,7 +105,7 @@ for tool in shellcheck actionlint herdr chrome-devtools-mcp copilot pi; do
   command -v "$tool" >/dev/null || { echo "setup: $tool is missing" >&2; exit 1; }
 done
 pi --version
-mkdir -p "$HOME/.pi/agent/extensions"
+mkdir -p "$PI_AGENT_DIR/extensions"
 herdr integration install pi
 
 browser_dom=$(timeout 60 chromium --headless --no-sandbox --disable-gpu \

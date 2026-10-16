@@ -23,14 +23,18 @@
     "FIRSTMATE_NPM_REGISTRY": "${localEnv:FIRSTMATE_NPM_REGISTRY}",
     "FIRSTMATE_PIP_INDEX_URL": "${localEnv:FIRSTMATE_PIP_INDEX_URL}",
     "CHROME_DEVTOOLS_AXI_CHROME_ARGS": "--no-sandbox",
-    "LAVISH_AXI_LINK_HOST": "localhost"
+    "LAVISH_AXI_LINK_HOST": "localhost",
+    "PI_CODING_AGENT_DIR": "/workspaces/firstmate/.pi-agent"
   },
   "remoteEnv": {
     "PATH": "/home/node/.local/bin:${containerEnv:PATH}"
   },
   "mounts": [
     "source=firstmate-gh-config,target=/home/node/.config/gh,type=volume",
-    "source=firstmate-copilot,target=/home/node/.copilot,type=volume"
+    "source=firstmate-copilot,target=/home/node/.copilot,type=volume",
+    // Mount for the local container volume, allowing access to files from the host machine when working in the container
+    // this folder has to exist on the host machine before starting the container
+    "source=C:\\firstmate_container_volume,target=/workspaces/firstmate_container_volume,type=bind"
   ],
   "onCreateCommand": "bash .devcontainer/setup.sh"
 }
