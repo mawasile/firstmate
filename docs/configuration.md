@@ -1050,6 +1050,7 @@ For a custom `LAVISH_AXI_PORT` or another service that VS Code does not detect, 
 
 The [container setup](../.devcontainer/setup.sh) also installs Pi and Herdr's global Pi extension, which Pi loads automatically on startup.
 Restart an existing Pi session after installing the extension so it can report its activity to Herdr.
+When a Windows clone has checked tracked symlinks out as plain files, the container setup turns on git's symlink support and restores each one whose file still matches git's tracked copy, warning about and leaving any edited file untouched.
 
 ## Home brief include (config/brief-include.md)
 

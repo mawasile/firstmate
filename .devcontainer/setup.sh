@@ -7,6 +7,8 @@
 # Docker's default seccomp profile blocks Chromium's namespace sandbox, so
 # devcontainer.json disables that sandbox only for browser automation.
 # Herdr's Pi integration installs a global extension that Pi loads on startup.
+# A Windows clone checks tracked symlinks out as plain files, so setup restores
+# any still matching git's copy once the mount proves it can hold real links.
 set -euo pipefail
 
 # shellcheck source=bin/fm-env-lib.sh
@@ -41,6 +43,36 @@ fi
 if ! git config --system --get-all safe.directory 2>/dev/null | grep -Fxq '*'; then
   sudo git config --system --add safe.directory '*'
 fi
+
+repair_tracked_links() {
+  local git_dir probe entry mode blob path
+  git_dir=$(git rev-parse --git-dir) || return 0
+  probe="$git_dir/fm-symlink-probe.$$"
+  rm -f "$probe"
+  if ! ln -s fm-symlink-probe-target "$probe" 2>/dev/null || [ ! -L "$probe" ]; then
+    rm -f "$probe"
+    echo "setup: warning: this filesystem cannot hold symlinks; tracked links left as checked out" >&2
+    return 0
+  fi
+  rm -f "$probe"
+  if ! git config core.symlinks true; then
+    echo "setup: warning: could not set core.symlinks; tracked links left as checked out" >&2
+    return 0
+  fi
+  while IFS= read -r -d '' entry; do
+    path=${entry#*$'\t'}
+    read -r mode blob _ <<<"${entry%%$'\t'*}"
+    [ "$mode" = 120000 ] || continue
+    [ -L "$path" ] && continue
+    if [ -f "$path" ] && [ "$(git hash-object -- "$path" 2>/dev/null)" = "$blob" ]; then
+      git checkout -- "$path" \
+        || echo "setup: warning: could not restore tracked link $path" >&2
+    else
+      echo "setup: warning: $path differs from its tracked link; left untouched" >&2
+    fi
+  done < <(git ls-files -s -z)
+}
+repair_tracked_links
 
 npm install -g @github/copilot chrome-devtools-mcp @earendil-works/pi-coding-agent
 
