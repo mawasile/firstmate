@@ -6,7 +6,11 @@
   },
   "init": true,
   "shutdownAction": "none",
-  "appPort": ["127.0.0.1:4387:4387"],
+  "appPort": ["127.0.0.1:4387:4387", "8787:8787"],
+  "portsAttributes": {
+    "4387": { "label": "Lavish" },
+    "8787": { "label": "herdr-web" }
+  },
   "otherPortsAttributes": {
     "onAutoForward": "notify"
   },
@@ -36,5 +40,6 @@
     // this folder has to exist on the host machine before starting the container
     "source=C:\\firstmate_container_volume,target=/workspaces/firstmate_container_volume,type=bind"
   ],
-  "onCreateCommand": "bash .devcontainer/setup.sh"
+  "onCreateCommand": "bash .devcontainer/setup.sh",
+  "postStartCommand": "bash .devcontainer/herdr-web-service.sh start"
 }

@@ -8,7 +8,7 @@
 # Usage:
 #   fm-install-herdr.sh <destination-directory>
 #
-# Pins Herdr v0.8.0, the suite-verified release with presentation-space support.
+# Pins Herdr v0.9.0, the release herdr-web's bridge requires (terminal protocol 22).
 # Selects the official GitHub Releases asset for the host OS/arch, downloads
 # with a bounded max size, verifies SHA-256 before install, then refuses to
 # finish unless the binary reports the exact pin version and a client protocol
@@ -16,11 +16,11 @@
 set -eu
 
 # Exact pin - change only with a re-verified real-Herdr matrix.
-FM_HERDR_CI_VERSION=0.8.0
+FM_HERDR_CI_VERSION=0.9.0
 FM_HERDR_CI_TAG="v${FM_HERDR_CI_VERSION}"
 FM_HERDR_CI_MIN_PROTOCOL=16
-# Bounded download ceiling (bytes). The largest official 0.8.0 asset is under 22 MB.
-FM_HERDR_CI_MAX_BYTES=25000000
+# Bounded download ceiling (bytes). The largest official 0.9.0 asset is under 25 MB.
+FM_HERDR_CI_MAX_BYTES=30000000
 FM_HERDR_CI_REPO=herdrdev/herdr
 
 die() {
@@ -35,19 +35,19 @@ arch=$(uname -m)
 case "${os}-${arch}" in
   Linux-x86_64)
     ASSET=herdr-linux-x86_64
-    SHA256=b872ea7e40fa2cb17e857ac9b62b1bf26db7b403c622f5d2f3f5b35f6e9acd28
+    SHA256=4fa1a01158dd8043da92d31b270780b0dcc10603038d9b61cac4d81ab63fb71f
     ;;
   Linux-aarch64|Linux-arm64)
     ASSET=herdr-linux-aarch64
-    SHA256=f647ac66468d9efbc642fe534fb284468f0aea60641606fc008dfc0d82a3ca87
+    SHA256=9c8db20fb7e7427b138d5367113f1621ffd319f2f65d6f009e2594029115f0d2
     ;;
   Darwin-arm64)
     ASSET=herdr-macos-aarch64
-    SHA256=d53a9f93fccfdfcc55632927bf51002f5add0aa7990bcdf508ffbd84ac658178
+    SHA256=32b53df09872628059c789a69f02a6b8e29e14ddf26711421f3463f70c1aef17
     ;;
   Darwin-x86_64)
     ASSET=herdr-macos-x86_64
-    SHA256=77cb5afd6c8fcaaaf3bc28e474ec01c209331ad08094e20d7f8aa9b0bb78d649
+    SHA256=d0c920b2a126a74809fa1491411c9a097a44786cac9c2ca51b818a995581cf16
     ;;
   *)
     die "unsupported platform ${os}-${arch}; official Herdr assets are linux/macos x86_64 and aarch64"

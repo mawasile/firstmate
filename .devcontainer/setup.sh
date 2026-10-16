@@ -12,6 +12,8 @@
 # Docker delivers a published port to the container's own address, so every new
 # shell binds Lavish there; Lavish refuses wildcard addresses, and the address
 # changes per container, so it is derived at shell start rather than fixed.
+# herdr-web runs as a background service (herdr-web-service.sh) that
+# devcontainer.json starts on every container start; it follows Herdr.
 # A Windows clone checks tracked symlinks out as plain files, so setup restores
 # any still matching git's copy once the mount proves it can hold real links.
 set -euo pipefail
@@ -37,6 +39,7 @@ sudo ln -sfn /usr/bin/chromium /opt/google/chrome/chrome
 bash bin/fm-install-shellcheck.sh "$HOME/.local/bin"
 bash bin/fm-install-actionlint.sh "$HOME/.local/bin"
 bash bin/fm-install-herdr.sh "$HOME/.local/bin"
+bash bin/fm-install-herdr-web.sh "$HOME/.local/bin"
 
 if [ -n "$NPM_REGISTRY" ]; then
   npm config set registry "$NPM_REGISTRY"
@@ -101,7 +104,7 @@ if [ -n "$missing" ]; then
   printf '%s\n' "$missing" >&2
   exit 1
 fi
-for tool in shellcheck actionlint herdr chrome-devtools-mcp copilot pi; do
+for tool in shellcheck actionlint herdr herdr-web chrome-devtools-mcp copilot pi; do
   command -v "$tool" >/dev/null || { echo "setup: $tool is missing" >&2; exit 1; }
 done
 pi --version
