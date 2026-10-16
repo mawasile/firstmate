@@ -6,10 +6,31 @@
   },
   "init": true,
   "shutdownAction": "none",
+  "forwardPorts": [4387],
+  "portsAttributes": {
+    "4387": {
+      "label": "Lavish Editor",
+      "protocol": "http",
+      "onAutoForward": "notify"
+    }
+  },
+  "otherPortsAttributes": {
+    "onAutoForward": "notify"
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "remote.autoForwardPorts": true,
+        "remote.autoForwardPortsSource": "process",
+        "remote.localPortHost": "localhost"
+      }
+    }
+  },
   "containerEnv": {
     "FIRSTMATE_NPM_REGISTRY": "${localEnv:FIRSTMATE_NPM_REGISTRY}",
     "FIRSTMATE_PIP_INDEX_URL": "${localEnv:FIRSTMATE_PIP_INDEX_URL}",
-    "CHROME_DEVTOOLS_AXI_CHROME_ARGS": "--no-sandbox"
+    "CHROME_DEVTOOLS_AXI_CHROME_ARGS": "--no-sandbox",
+    "LAVISH_AXI_HOST": "127.0.0.1"
   },
   "remoteEnv": {
     "PATH": "/home/node/.local/bin:${containerEnv:PATH}"

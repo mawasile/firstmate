@@ -1037,6 +1037,20 @@ When the file is absent, worker launches do not add a board address and retain t
 Malformed or unreadable values refuse the launch before the worker starts.
 The address selects the existing shared server; it does not authorize starting or stopping the server, and the Lavish startup crash remains a vendor-tool concern.
 
+### Dev-container browser access
+
+The [dev-container configuration](../.devcontainer/devcontainer.json) forwards Lavish's default port, 4387, to the host computer through VS Code and keeps Lavish bound to the container's loopback address.
+VS Code also detects other development-service ports and notifies you when it forwards them, with host-side listeners restricted to localhost.
+These settings do not publish Docker ports or make services accessible to other computers.
+
+After changing this configuration, run **Dev Containers: Rebuild Container**.
+Start or resume the review with `lavish-axi <html-file>`, then use VS Code's **Ports** view to open the forwarded address in your host browser, preserving the review URL's `/session/...` path.
+If VS Code assigns a different local port because 4387 is occupied, use the local address shown in **Ports** instead of the container's original address.
+For a custom `LAVISH_AXI_PORT` or another service that VS Code does not detect, add its port through **Ports: Forward a Port** or the configuration's `forwardPorts` list.
+
+The [container setup](../.devcontainer/setup.sh) also installs Pi and Herdr's global Pi extension, which Pi loads automatically on startup.
+Restart an existing Pi session after installing the extension so it can report its activity to Herdr.
+
 ## Home brief include (config/brief-include.md)
 
 The optional local, gitignored `config/brief-include.md` adds standing worker instructions to every ship and scout brief.

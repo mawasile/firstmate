@@ -6,6 +6,7 @@
 # network that blocks those must set both values before the container builds.
 # Docker's default seccomp profile blocks Chromium's namespace sandbox, so
 # devcontainer.json disables that sandbox only for browser automation.
+# Herdr's Pi integration installs a global extension that Pi loads on startup.
 set -euo pipefail
 
 # shellcheck source=bin/fm-env-lib.sh
@@ -41,7 +42,7 @@ if ! git config --system --get-all safe.directory 2>/dev/null | grep -Fxq '*'; t
   sudo git config --system --add safe.directory '*'
 fi
 
-npm install -g @github/copilot chrome-devtools-mcp
+npm install -g @github/copilot chrome-devtools-mcp @earendil-works/pi-coding-agent
 
 bash bin/fm-bootstrap.sh install \
   treehouse \
@@ -62,9 +63,13 @@ if [ -n "$missing" ]; then
   printf '%s\n' "$missing" >&2
   exit 1
 fi
-for tool in shellcheck actionlint herdr chrome-devtools-mcp copilot; do
+for tool in shellcheck actionlint herdr chrome-devtools-mcp copilot pi; do
   command -v "$tool" >/dev/null || { echo "setup: $tool is missing" >&2; exit 1; }
 done
+pi --version
+mkdir -p "$HOME/.pi/agent/extensions"
+herdr integration install pi
+
 browser_dom=$(timeout 60 chromium --headless --no-sandbox --disable-gpu \
   --dump-dom 'data:text/html,<p>firstmate-browser-ready</p>' 2>/dev/null)
 case "$browser_dom" in
