@@ -12,8 +12,13 @@
 # Docker delivers a published port to the container's own address, so every new
 # shell binds Lavish there; Lavish refuses wildcard addresses, and the address
 # changes per container, so it is derived at shell start rather than fixed.
+# Herdr's state lives in ~/.config/herdr, which herdr-state-link.sh links to
+# this checkout's .herdr/ so a rebuild keeps each pane's agent session link.
 # herdr-web runs as a background service (herdr-web-service.sh) that
-# devcontainer.json starts on every container start; it follows Herdr.
+# devcontainer.json starts on every container start; it follows Herdr. Every
+# login or interactive shell also runs both scripts as a backup, because a
+# container started outside the editor skips devcontainer.json's start hook.
+# Both are no-ops once done, and the link is made only while Herdr is stopped.
 # A Windows clone checks tracked symlinks out as plain files, so setup restores
 # any still matching git's copy once the mount proves it can hold real links.
 set -euo pipefail
@@ -27,6 +32,7 @@ PI_AGENT_DIR=${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}
 mkdir -p "$HOME/.local/bin"
 sudo chown -R "$(id -un):$(id -gn)" "$HOME/.config" "$HOME/.copilot" "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
+bash .devcontainer/herdr-state-link.sh
 
 sudo apt-get update
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -129,4 +135,16 @@ lavish_ip=$(hostname -i 2>/dev/null | awk '{print $1}')
 [ -z "$lavish_ip" ] || export LAVISH_AXI_HOST="$lavish_ip"
 unset lavish_ip
 RC
+done
+
+herdr_marker='# firstmate: keep Herdr state in the checkout and start herdr-web'
+herdr_link="$PWD/.devcontainer/herdr-state-link.sh"
+herdr_web_service="$PWD/.devcontainer/herdr-web-service.sh"
+# ~/.profile covers login shells such as `bash -lc herdr`, which skip ~/.bashrc
+# on Debian because it returns early when not interactive.
+for rc in "$HOME/.profile" "$HOME/.bashrc" "$HOME/.zshrc"; do
+  case "$rc" in "$HOME/.profile"|"$HOME/.bashrc") ;; *) [ -f "$rc" ] || continue ;; esac
+  grep -Fq "$herdr_marker" "$rc" 2>/dev/null && continue
+  printf '\n%s\n[ -f %q ] && bash %q 2>/dev/null\n[ -f %q ] && bash %q start\n' \
+    "$herdr_marker" "$herdr_link" "$herdr_link" "$herdr_web_service" "$herdr_web_service" >> "$rc"
 done

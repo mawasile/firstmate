@@ -41,5 +41,5 @@
     "source=C:\\firstmate_container_volume,target=/workspaces/firstmate_container_volume,type=bind"
   ],
   "onCreateCommand": "bash .devcontainer/setup.sh",
-  "postStartCommand": "bash .devcontainer/herdr-web-service.sh start"
+  "postStartCommand": "bash .devcontainer/herdr-state-link.sh; bash .devcontainer/herdr-web-service.sh start"
 }
